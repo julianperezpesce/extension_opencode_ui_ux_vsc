@@ -6,7 +6,7 @@ window.addEventListener('message', event => {
     const message = event.data;
     const chatView = document.querySelector('chat-view') as any; // Cast to any to avoid strict type issues for now
     
-    switch (message.command) {
+    switch (message.type) {
         case 'chat.receive':
             if (chatView && typeof chatView.receiveMessage === 'function') {
                 chatView.receiveMessage(message.text);
