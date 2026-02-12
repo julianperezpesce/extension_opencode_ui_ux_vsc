@@ -167,10 +167,14 @@ export class WebviewController {
 
       logger.appendLine(`Sending chat to opencode run: ${text}`)
       
-      const args = ["run", "--session", this.bridgeSessionId || "default", text]
+      const sessionId = `chat-${Date.now()}`
+      const args = ["run", "--session", sessionId, text]
       
-      // Use "opencode" command directly as we trust the system PATH now
-      const child = spawn("opencode", args, {
+      // Use the resolved binary path from the backend connection
+      const binaryPath = this.connection.binaryPath
+      logger.appendLine(`Spawning: ${binaryPath} ${args.join(" ")}`)
+
+      const child = spawn(binaryPath, args, {
         shell: true,
         env: { ...process.env } // Pass environment variables
       })

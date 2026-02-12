@@ -15,6 +15,7 @@ export interface BackendConnection {
   port: number
   uiBase: string
   process: ChildProcess
+  binaryPath: string
 }
 
 export class BackendLauncher {
@@ -56,7 +57,7 @@ export class BackendLauncher {
         logger.appendLine(`Additional backend started successfully on port ${connection.port}`)
 
         // Do NOT update currentProcess/currentConnection for additional backend
-        return { ...connection, process: childProcess }
+        return { ...connection, process: childProcess, binaryPath }
       }
 
       // For shared backend: terminate any existing and start new
@@ -79,11 +80,12 @@ export class BackendLauncher {
       logger.appendLine(`Backend started successfully on port ${connection.port}`)
 
       // Cache current connection (shared)
-      this.currentConnection = connection
+      this.currentConnection = { ...connection, binaryPath }
 
       return {
         ...connection,
         process: childProcess,
+        binaryPath
       }
     } catch (error) {
       logger.appendLine(`Failed to launch backend: ${error}`)
@@ -148,11 +150,12 @@ export class BackendLauncher {
       logger.appendLine(`Fallback backend started successfully on port ${connection.port}`)
 
       // Cache current connection
-      this.currentConnection = connection
+      this.currentConnection = { ...connection, binaryPath }
 
       return {
         ...connection,
         process: childProcess,
+        binaryPath
       }
     } catch (fallbackError) {
       logger.appendLine(`Fallback backend launch also failed: ${fallbackError}`)
@@ -297,7 +300,7 @@ export class BackendLauncher {
    * @param process The spawned backend process
    * @returns Promise resolving to connection info
    */
-  private async parseConnectionInfo(process: ChildProcess): Promise<Omit<BackendConnection, "process">> {
+  private async parseConnectionInfo(process: ChildProcess): Promise<{ port: number; uiBase: string }> {
     return new Promise((resolve, reject) => {
       let stdoutData = ""
       let stderrData = ""
