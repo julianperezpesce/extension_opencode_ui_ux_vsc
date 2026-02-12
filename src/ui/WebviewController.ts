@@ -167,7 +167,8 @@ export class WebviewController {
 
       logger.appendLine(`Sending chat to opencode run: ${text}`)
       
-      const sessionId = `chat-${Date.now()}`
+      // FIX: Session ID must start with "ses" according to OpenCode validation
+      const sessionId = `ses-${Date.now()}`
       const args = ["run", "--session", sessionId, text]
       
       // Use the resolved binary path from the backend connection
