@@ -189,7 +189,7 @@ export class ChatView extends LitElement {
         const vscode = window.acquireVsCodeApi ? window.acquireVsCodeApi() : null;
         if (vscode) {
             vscode.postMessage({
-                command: 'chat.send',
+                type: 'chat.send',
                 text: text
             });
         } else {

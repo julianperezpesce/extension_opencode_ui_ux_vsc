@@ -28,7 +28,7 @@ window.addEventListener('message', event => {
 // @ts-ignore
 const vscode = window.acquireVsCodeApi ? window.acquireVsCodeApi() : null;
 if (vscode) {
-    vscode.postMessage({ command: 'ui.ready' });
+    vscode.postMessage({ type: 'ui.ready' });
 } else {
     console.log('Running in browser mode (no VS Code API)');
 }
