@@ -179,30 +179,54 @@ export class WebviewController {
 
       const child = spawn(binaryPath, args, {
         shell: false, // Disable shell for direct control
-        env: { ...process.env }
+        env: { ...process.env, FORCE_COLOR: "0" } // Try to force no color
       })
 
       // IMPORTANT: Close stdin to prevent process from hanging waiting for input
       child.stdin.end()
 
       let fullOutput = ""
-      let errorOutput = ""
+      
+      const logWithTime = (msg: string) => {
+        const time = new Date().toLocaleTimeString()
+        logger.appendLine(`[${time}] ${msg}`)
+      }
+
+      // Timeout to kill process if it hangs (30s)
+      const timeout = setTimeout(() => {
+        logWithTime("Timeout reached. Killing process.")
+        child.kill()
+        if (this.communicationBridge) {
+          this.communicationBridge.sendMessage({
+            type: "error",
+            // @ts-ignore
+            command: "chat.error",
+            text: "Error: Request timed out (30s)."
+          })
+        }
+      }, 30000)
 
       child.stdout.on("data", (data) => {
         const chunk = data.toString()
         fullOutput += chunk
-        logger.appendLine(`OpenCode stdout chunk: ${chunk.length} chars`)
+        logWithTime(`stdout chunk: ${chunk.length} chars`)
       })
 
       child.stderr.on("data", (data) => {
-        const err = data.toString()
-        errorOutput += err
-        logger.appendLine(`OpenCode stderr: ${err}`)
+        const chunk = data.toString()
+        fullOutput += chunk // Combine stderr into output
+        logWithTime(`stderr chunk: ${chunk.length} chars`)
       })
 
       child.on("close", (code) => {
+        clearTimeout(timeout)
+        logWithTime(`Process finished with code ${code}`)
+        
         if (this.communicationBridge) {
-          const finalText = fullOutput.trim() || (code === 0 ? "Done (no output)." : `Error executing command: ${errorOutput}`)
+          // Basic ANSI strip regex
+          const cleanText = fullOutput.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
+          
+          const finalText = cleanText.trim() || (code === 0 ? "Done (no output)." : "Error executing command (no output).")
           
           this.communicationBridge.sendMessage({
             type: "chat.receive",
@@ -214,7 +238,8 @@ export class WebviewController {
       })
 
       child.on("error", (err) => {
-        logger.appendLine(`Failed to spawn opencode run: ${err}`)
+        clearTimeout(timeout)
+        logWithTime(`Failed to spawn opencode run: ${err}`)
         if (this.communicationBridge) {
           this.communicationBridge.sendMessage({
             type: "error",
