@@ -215,15 +215,34 @@ export class BackendLauncher {
    * Check if 'opencode' command is available in the system PATH or common locations
    */
   private async findSystemBinary(): Promise<string | null> {
-    const candidates = [
-      "opencode",
-      "opencode-cli", // Common alias
-      path.join(os.homedir(), "bin", "opencode"),
-      path.join(os.homedir(), "bin", "opencode-cli"),
-      path.join(os.homedir(), ".local", "bin", "opencode"),
-      "/usr/local/bin/opencode",
-      "/usr/bin/opencode"
-    ]
+    const platform = os.platform()
+    const candidates: string[] = ["opencode", "opencode-cli"] // Always check PATH first
+
+    if (platform === "win32") {
+      // Windows specific paths
+      const localAppData = process.env.LOCALAPPDATA
+      const programFiles = process.env.ProgramFiles
+      const programFilesX86 = process.env["ProgramFiles(x86)"]
+
+      candidates.push("opencode.exe")
+      if (localAppData) candidates.push(path.join(localAppData, "opencode", "opencode.exe"))
+      if (programFiles) candidates.push(path.join(programFiles, "opencode", "opencode.exe"))
+      if (programFilesX86) candidates.push(path.join(programFilesX86, "opencode", "opencode.exe"))
+    } else {
+      // Unix-like (Linux/macOS) common paths
+      candidates.push(path.join(os.homedir(), "bin", "opencode"))
+      candidates.push(path.join(os.homedir(), "bin", "opencode-cli"))
+      candidates.push("/usr/local/bin/opencode")
+      candidates.push("/usr/bin/opencode")
+
+      if (platform === "darwin") {
+        // macOS specific (Homebrew)
+        candidates.push("/opt/homebrew/bin/opencode")
+      } else if (platform === "linux") {
+        // Linux specific
+        candidates.push(path.join(os.homedir(), ".local", "bin", "opencode"))
+      }
+    }
 
     for (const bin of candidates) {
       if (await this.checkBinary(bin)) {
