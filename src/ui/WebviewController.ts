@@ -1,5 +1,4 @@
 import * as vscode from "vscode"
-import { exec } from "child_process"
 import { BackendConnection } from "../backend/BackendLauncher"
 import { SettingsManager } from "../settings/SettingsManager"
 import { CommunicationBridge } from "./CommunicationBridge"
@@ -165,66 +164,39 @@ export class WebviewController {
         throw new Error("No backend connection available")
       }
 
-      const binaryPath = this.connection.binaryPath
-      const sessionId = `ses-${Date.now()}`
-      
-      // Construct command carefully to handle quotes in text
-      // We use JSON.stringify(text) to escape quotes safely for the shell command
-      const safeText = JSON.stringify(text)
-      
-      let command = `"${binaryPath}" run --session ${sessionId} ${safeText}`
-      
-      // On Linux/macOS, use 'script' to trick the process into thinking it has a TTY
-      // This forces opencode to flush output immediately and not hide prompt
-      if (process.platform === 'linux' || process.platform === 'darwin') {
-        // script -q /dev/null -c "cmd" captures stdout including colors
-        // We need to escape inner quotes for the -c argument
-        const innerCmd = `${binaryPath} run --session ${sessionId} ${safeText}`.replace(/"/g, '\\"')
-        command = `script -q /dev/null -c "${innerCmd}"`
-      }
+      // Extract the base URL from uiBase (e.g., "http://127.0.0.1:4096/app" -> "http://127.0.0.1:4096")
+      const uiBaseUrl = new URL(this.connection.uiBase)
+      const apiUrl = `${uiBaseUrl.origin}/tui/append-prompt`
 
-      logger.appendLine(`Executing: ${command}`)
+      logger.appendLine(`Sending to API: ${apiUrl}`)
 
-      exec(command, { env: { ...process.env, FORCE_COLOR: '0' } }, (error, stdout, stderr) => {
-        // Log raw output for debugging
-        logger.appendLine(`Raw stdout length: ${stdout.length}`)
-        if (stderr) logger.appendLine(`Raw stderr length: ${stderr.length}`)
-
-        if (error && error.code !== 0) {
-          logger.appendLine(`Exec error: ${error.message}`)
-          // Don't return yet, sometimes useful info is in stdout/stderr even on error
-        }
-
-        const fullOutput = stdout + stderr
-        
-        // Strip ANSI codes (colors) and carriage returns
-        const cleanText = fullOutput
-          .replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
-          .replace(/\r/g, '')
-          .trim()
-
-        if (this.communicationBridge) {
-          this.communicationBridge.sendMessage({
-            type: "chat.receive",
-            text: cleanText || (error ? `Error: ${error.message}` : "No response."),
-            // @ts-ignore
-            command: "chat.receive"
-          })
-        }
+      // Use the official OpenCode API endpoint
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ text }),
       })
 
-    } catch (error) {
-      logger.appendLine(`Error handling chat send: ${error}`)
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status} ${response.statusText}`)
+      }
+
+      // The API returns "true" on success, but we need to wait for the actual response
+      // Since this is async and the TUI handles the output, we'll acknowledge receipt
+      // The user will see the response in their OpenCode TUI session
+      
       if (this.communicationBridge) {
         this.communicationBridge.sendMessage({
-          type: "error",
+          type: "chat.receive",
+          text: "Mensaje enviado a OpenCode. Revisa el panel de sesiones para ver la respuesta.",
           // @ts-ignore
-          command: "chat.error",
-          text: `Failed to send message: ${error}`
+          command: "chat.receive"
         })
       }
-    }
-  }
+
+    } catch (error) {
       logger.appendLine(`Error handling chat send: ${error}`)
       if (this.communicationBridge) {
         this.communicationBridge.sendMessage({
