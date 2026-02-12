@@ -1,11 +1,15 @@
 {
-  "name": "opencode-ux-plus",
-  "displayName": "OpenCode UX+ (unofficial)",
-  "description": "Unofficial OpenCode VSCode extension",
-  "version": "26.2.8",
-  "publisher": "paviko",
+  "name": "opencode-dragonfu",
+  "displayName": "OpenCode DragonFu",
+  "description": "Powerful OpenCode extension with DragonFu UI",
+  "version": "1.0.0",
+  "publisher": "julianperezpesce",
   "author": {
-    "name": "paviko"
+    "name": "Julian Perez Pesce"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/julianperezpesce/extension_opencode_ui_ux_vsc.git"
   },
   "license": "MIT",
   "homepage": "https://github.com/paviko/opencode-ide-plugin",

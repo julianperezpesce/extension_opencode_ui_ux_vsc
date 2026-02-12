@@ -1,5 +1,7 @@
 import { ChildProcess, spawn } from "child_process"
 import * as vscode from "vscode"
+import * as path from "path"
+import * as os from "os"
 import { ResourceExtractor } from "./ResourceExtractor"
 import { ErrorCategory, errorHandler, ErrorSeverity } from "../utils/ErrorHandler"
 import { logger } from "../globals"
@@ -179,13 +181,65 @@ export class BackendLauncher {
       return override.trim()
     }
 
-    // Get extension path
-    const extension = vscode.extensions.getExtension("paviko.opencode-ux-plus")
-    if (!extension) {
-      throw new Error("Extension not found")
+    try {
+      // Get extension path
+      const extension = vscode.extensions.getExtension("julianperezpesce.opencode-dragonfu")
+      if (extension) {
+        return await ResourceExtractor.extractBinary(extension.extensionPath)
+      }
+    } catch (e) {
+      logger.appendLine(`Bundled binary not found: ${e}`)
     }
 
-    return ResourceExtractor.extractBinary(extension.extensionPath)
+    // Fallback: Check for system binary
+    const systemBinary = await this.findSystemBinary()
+    if (systemBinary) {
+      logger.appendLine(`Using system binary found at: ${systemBinary}`)
+      return systemBinary
+    }
+
+    const msg = "OpenCode CLI not found. Please install it to use this extension."
+    vscode.window.showErrorMessage(msg, "Install Guide").then((selection) => {
+      if (selection === "Install Guide") {
+        vscode.env.openExternal(vscode.Uri.parse("https://github.com/anomalyco/opencode"))
+      }
+    })
+    
+    throw new Error(msg)
+  }
+
+  /**
+   * Check if 'opencode' command is available in the system PATH or common locations
+   */
+  private async findSystemBinary(): Promise<string | null> {
+    const candidates = [
+      "opencode",
+      "opencode-cli", // Common alias
+      path.join(os.homedir(), "bin", "opencode"),
+      path.join(os.homedir(), "bin", "opencode-cli"),
+      path.join(os.homedir(), ".local", "bin", "opencode"),
+      "/usr/local/bin/opencode",
+      "/usr/bin/opencode"
+    ]
+
+    for (const bin of candidates) {
+      if (await this.checkBinary(bin)) {
+        return bin
+      }
+    }
+    return null
+  }
+
+  private checkBinary(binPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      try {
+        const checkProcess = spawn(binPath, ["--version"])
+        checkProcess.on("error", () => resolve(false))
+        checkProcess.on("exit", (code) => resolve(code === 0))
+      } catch {
+        resolve(false)
+      }
+    })
   }
 
   /**
