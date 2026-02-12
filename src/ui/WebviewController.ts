@@ -1,5 +1,5 @@
 import * as vscode from "vscode"
-import { spawn } from "child_process"
+import { exec } from "child_process"
 import { BackendConnection } from "../backend/BackendLauncher"
 import { SettingsManager } from "../settings/SettingsManager"
 import { CommunicationBridge } from "./CommunicationBridge"
@@ -165,93 +165,66 @@ export class WebviewController {
         throw new Error("No backend connection available")
       }
 
-      logger.appendLine(`Sending chat to opencode run: ${text}`)
-      
-      // FIX: Session ID must start with "ses" according to OpenCode validation
-      const sessionId = `ses-${Date.now()}`
-      const args = ["run", "--session", sessionId, text]
-      
-      // Use the resolved binary path from the backend connection
       const binaryPath = this.connection.binaryPath
-      logger.appendLine(`Spawning: ${binaryPath} ${args.join(" ")}`)
-
-      // Debug notification
-      // vscode.window.showInformationMessage(`OpenCode: Spawning process...`)
-
-      const child = spawn(binaryPath, args, {
-        shell: false, // Disable shell for direct control
-        env: { ...process.env, FORCE_COLOR: "0" } // Try to force no color
-      })
-
-      // IMPORTANT: Close stdin to prevent process from hanging waiting for input
-      child.stdin.end()
-
-      let fullOutput = ""
+      const sessionId = `ses-${Date.now()}`
       
-      const logWithTime = (msg: string) => {
-        const time = new Date().toLocaleTimeString()
-        logger.appendLine(`[${time}] ${msg}`)
+      // Construct command carefully to handle quotes in text
+      // We use JSON.stringify(text) to escape quotes safely for the shell command
+      const safeText = JSON.stringify(text)
+      
+      let command = `"${binaryPath}" run --session ${sessionId} ${safeText}`
+      
+      // On Linux/macOS, use 'script' to trick the process into thinking it has a TTY
+      // This forces opencode to flush output immediately and not hide prompt
+      if (process.platform === 'linux' || process.platform === 'darwin') {
+        // script -q /dev/null -c "cmd" captures stdout including colors
+        // We need to escape inner quotes for the -c argument
+        const innerCmd = `${binaryPath} run --session ${sessionId} ${safeText}`.replace(/"/g, '\\"')
+        command = `script -q /dev/null -c "${innerCmd}"`
       }
 
-      // Timeout to kill process if it hangs (30s)
-      const timeout = setTimeout(() => {
-        logWithTime("Timeout reached. Killing process.")
-        child.kill()
-        if (this.communicationBridge) {
-          this.communicationBridge.sendMessage({
-            type: "error",
-            // @ts-ignore
-            command: "chat.error",
-            text: "Error: Request timed out (30s)."
-          })
+      logger.appendLine(`Executing: ${command}`)
+
+      exec(command, { env: { ...process.env, FORCE_COLOR: '0' } }, (error, stdout, stderr) => {
+        // Log raw output for debugging
+        logger.appendLine(`Raw stdout length: ${stdout.length}`)
+        if (stderr) logger.appendLine(`Raw stderr length: ${stderr.length}`)
+
+        if (error && error.code !== 0) {
+          logger.appendLine(`Exec error: ${error.message}`)
+          // Don't return yet, sometimes useful info is in stdout/stderr even on error
         }
-      }, 30000)
 
-      child.stdout.on("data", (data) => {
-        const chunk = data.toString()
-        fullOutput += chunk
-        logWithTime(`stdout chunk: ${chunk.length} chars`)
-      })
-
-      child.stderr.on("data", (data) => {
-        const chunk = data.toString()
-        fullOutput += chunk // Combine stderr into output
-        logWithTime(`stderr chunk: ${chunk.length} chars`)
-      })
-
-      child.on("close", (code) => {
-        clearTimeout(timeout)
-        logWithTime(`Process finished with code ${code}`)
+        const fullOutput = stdout + stderr
         
+        // Strip ANSI codes (colors) and carriage returns
+        const cleanText = fullOutput
+          .replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
+          .replace(/\r/g, '')
+          .trim()
+
         if (this.communicationBridge) {
-          // Basic ANSI strip regex
-          const cleanText = fullOutput.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
-          
-          const finalText = cleanText.trim() || (code === 0 ? "Done (no output)." : "Error executing command (no output).")
-          
           this.communicationBridge.sendMessage({
             type: "chat.receive",
-            text: finalText,
+            text: cleanText || (error ? `Error: ${error.message}` : "No response."),
             // @ts-ignore
             command: "chat.receive"
           })
         }
       })
 
-      child.on("error", (err) => {
-        clearTimeout(timeout)
-        logWithTime(`Failed to spawn opencode run: ${err}`)
-        if (this.communicationBridge) {
-          this.communicationBridge.sendMessage({
-            type: "error",
-            // @ts-ignore
-            command: "chat.error",
-            text: `Failed to spawn process: ${err.message}`
-          })
-        }
-      })
-
     } catch (error) {
+      logger.appendLine(`Error handling chat send: ${error}`)
+      if (this.communicationBridge) {
+        this.communicationBridge.sendMessage({
+          type: "error",
+          // @ts-ignore
+          command: "chat.error",
+          text: `Failed to send message: ${error}`
+        })
+      }
+    }
+  }
       logger.appendLine(`Error handling chat send: ${error}`)
       if (this.communicationBridge) {
         this.communicationBridge.sendMessage({
