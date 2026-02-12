@@ -1,0 +1,218 @@
+{
+  "name": "opencode-ux-plus",
+  "displayName": "OpenCode UX+ (unofficial)",
+  "description": "Unofficial OpenCode VSCode extension",
+  "version": "26.2.8",
+  "publisher": "paviko",
+  "author": {
+    "name": "paviko"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/paviko/opencode-ide-plugin",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paviko/opencode-ide-plugin.git",
+    "directory": "hosts/vscode-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/paviko/opencode-ide-plugin/issues"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "icon": "resources/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "keywords": [
+    "terminal",
+    "bridge",
+    "cli",
+    "development"
+  ],
+  "activationEvents": [
+    "onView:opencode.main",
+    "onCommand:opencode.openPanel",
+    "onCommand:opencode.addFileToContext",
+    "onCommand:opencode.addLinesToContext",
+    "onCommand:opencode.pastePath",
+    "onCommand:opencode.showDiagnostics"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "opencode.openPanel",
+        "title": "Open OpenCode Panel",
+        "category": "OpenCode",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "opencode.addFileToContext",
+        "title": "OpenCode: Add to context",
+        "category": "OpenCode"
+      },
+      {
+        "command": "opencode.addLinesToContext",
+        "title": "OpenCode: Add lines to context",
+        "category": "OpenCode"
+      },
+      {
+        "command": "opencode.pastePath",
+        "title": "OpenCode: Paste path",
+        "category": "OpenCode"
+      },
+      {
+        "command": "opencode.showDiagnostics",
+        "title": "OpenCode: Show Diagnostics",
+        "category": "OpenCode",
+        "icon": "$(info)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "opencode",
+          "title": "OpenCode",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "opencode": [
+        {
+          "type": "webview",
+          "id": "opencode.main",
+          "name": "OpenCode",
+          "icon": "resources/icon.svg",
+          "webview": {
+            "retainContextWhenHidden": true
+          }
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "opencode.openPanel",
+          "when": "view == opencode.main",
+          "group": "navigation@1"
+        },
+        {
+          "command": "opencode.showDiagnostics",
+          "when": "view == opencode.main",
+          "group": "navigation@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "opencode.addFileToContext",
+          "group": "opencode@1",
+          "when": "resourceScheme == file && !explorerResourceIsFolder"
+        },
+        {
+          "command": "opencode.addFileToContext",
+          "group": "opencode@1",
+          "when": "resourceScheme == file && explorerResourceIsFolder"
+        },
+        {
+          "command": "opencode.pastePath",
+          "group": "opencode@2",
+          "when": "resourceScheme == file && explorerResourceIsFolder"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "opencode.addFileToContext",
+          "group": "opencode@1"
+        },
+        {
+          "command": "opencode.addLinesToContext",
+          "group": "opencode@2",
+          "when": "editorHasSelection"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "opencode.addFileToContext",
+          "group": "opencode@9",
+          "when": "resourceScheme == file"
+        }
+      ],
+      "openEditors/context": [
+        {
+          "command": "opencode.addFileToContext",
+          "group": "opencode@9",
+          "when": "resourceScheme == file"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "opencode.addFileToContext",
+        "key": "ctrl+'",
+        "mac": "cmd+'",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "opencode.addLinesToContext",
+        "key": "ctrl+shift+'",
+        "mac": "cmd+shift+'",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "OpenCode",
+      "properties": {
+        "opencode.customCommand": {
+          "type": "string",
+          "default": "",
+          "description": "Custom command to run in the terminal (optional)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run copy-license && npm run compile",
+    "copy-license": "node -e \"const fs=require('fs'); const path=require('path'); const src=path.resolve(__dirname,'..','..','LICENSE'); const dest=path.resolve(__dirname,'LICENSE'); if(fs.existsSync(src)){fs.copyFileSync(src,dest); console.log('Copied LICENSE to extension root');} else { console.warn('Root LICENSE not found at '+src); }\"",
+    "compile": "tsc -p ./ && tsc -p ./tsconfig.test.json",
+    "compile:production": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "pnpm run compile && pnpm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "vscode-test",
+    "test:script": "./scripts/test.sh",
+    "package": "cd ../ && ./scripts/build-vscode.sh --production --skip-tests",
+    "package:dev": "cd ../ && ./scripts/build-vscode.sh --skip-tests",
+    "package:pre-release": "pnpm run compile:production && vsce package --pre-release --no-dependencies",
+    "publish": "pnpm run compile:production && vsce publish --no-dependencies",
+    "publish:pre-release": "pnpm run compile:production && vsce publish --pre-release --no-dependencies",
+    "install:vsce": "npm install -g @vscode/vsce",
+    "clean": "rimraf out *.vsix",
+    "build:binaries": "cd ../ && ./scripts/build_opencode.sh",
+    "prebuild": "pnpm run build:binaries && pnpm run compile:production"
+  },
+  "devDependencies": {
+    "@types/glob": "^9.0.0",
+    "@types/mocha": "^10.0.6",
+    "@types/node": "18.x",
+    "@types/sinon": "^17.0.2",
+    "@types/vscode": "^1.74.0",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "@vscode/test-cli": "^0.0.4",
+    "@vscode/test-electron": "^2.3.8",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.56.0",
+    "glob": "^11.0.3",
+    "mocha": "^10.2.0",
+    "rimraf": "^5.0.5",
+    "sinon": "^17.0.1",
+    "typescript": "^5.0.0"
+  },
+  "packageManager": "pnpm@9.0.0+sha512.b4106707c7225b1748b61595953ccbebff97b54ad05d002aa3635f633b9c53cd666f7ce9b8bc44704f1fa048b9a49b55371ab2d9e9d667d1efe2ef1514bcd513"
+}

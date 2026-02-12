@@ -1,0 +1,15 @@
+out/
+node_modules/
+.vscode-test/
+*.vsix
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+dist/
+coverage/
+.env
+.env.local
