@@ -174,16 +174,24 @@ export class WebviewController {
       const binaryPath = this.connection.binaryPath
       logger.appendLine(`Spawning: ${binaryPath} ${args.join(" ")}`)
 
+      // Debug notification
+      // vscode.window.showInformationMessage(`OpenCode: Spawning process...`)
+
       const child = spawn(binaryPath, args, {
-        shell: true,
-        env: { ...process.env } // Pass environment variables
+        shell: false, // Disable shell for direct control
+        env: { ...process.env }
       })
+
+      // IMPORTANT: Close stdin to prevent process from hanging waiting for input
+      child.stdin.end()
 
       let fullOutput = ""
       let errorOutput = ""
 
       child.stdout.on("data", (data) => {
-        fullOutput += data.toString()
+        const chunk = data.toString()
+        fullOutput += chunk
+        logger.appendLine(`OpenCode stdout chunk: ${chunk.length} chars`)
       })
 
       child.stderr.on("data", (data) => {
