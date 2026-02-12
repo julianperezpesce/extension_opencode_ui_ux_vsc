@@ -16,5 +16,5 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true
   },
-  "exclude": ["node_modules", ".vscode-test", "src/test"]
+  "exclude": ["node_modules", ".vscode-test", "src/test", "src/webview"]
 }

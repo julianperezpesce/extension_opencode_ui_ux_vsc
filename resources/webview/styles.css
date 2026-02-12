@@ -1,0 +1,73 @@
+/* Base Styles (VS Code Native) */
+:root {
+  --container-paddding: 20px;
+  --input-background: var(--vscode-input-background);
+  --input-foreground: var(--vscode-input-foreground);
+  --input-border: var(--vscode-input-border);
+  --button-primary-background: var(--vscode-button-background);
+  --button-primary-foreground: var(--vscode-button-foreground);
+  --button-primary-hover: var(--vscode-button-hoverBackground);
+}
+
+body {
+  padding: 0;
+  margin: 0;
+  color: var(--vscode-editor-foreground);
+  font-family: var(--vscode-font-family);
+  font-weight: var(--vscode-font-weight);
+  font-size: var(--vscode-font-size);
+  background-color: var(--vscode-editor-background);
+  overflow: hidden; /* App handles scrolling */
+}
+
+/* DragonFu Theme (Neon/Cyberpunk Override) */
+body.dragonfu-theme {
+  /* Core Colors */
+  --dragonfu-neon-cyan: #00f3ff;
+  --dragonfu-neon-magenta: #ff00ff;
+  --dragonfu-deep-black: #050505;
+  --dragonfu-panel-bg: #0a0a0a;
+  
+  /* Overrides */
+  --vscode-editor-background: var(--dragonfu-deep-black);
+  --vscode-sideBar-background: var(--dragonfu-deep-black);
+  --vscode-input-background: #111;
+  --vscode-input-border: var(--dragonfu-neon-cyan);
+  --vscode-button-background: transparent;
+  --vscode-button-foreground: var(--dragonfu-neon-cyan);
+  --vscode-button-hoverBackground: rgba(0, 243, 255, 0.1);
+  --vscode-scrollbarSlider-background: rgba(0, 243, 255, 0.2);
+  
+  /* Specific UI Tweaks */
+  font-family: 'JetBrains Mono', 'Fira Code', monospace; 
+}
+
+body.dragonfu-theme vscode-button {
+  border: 1px solid var(--dragonfu-neon-cyan);
+  box-shadow: 0 0 5px var(--dragonfu-neon-cyan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+body.dragonfu-theme vscode-text-area {
+  border-left: 2px solid var(--dragonfu-neon-magenta);
+}
+
+/* Scrollbar styling for Webview */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
+}
+
+::-webkit-scrollbar-track {
+  background: var(--vscode-scrollbarSlider-activeBackground);
+}

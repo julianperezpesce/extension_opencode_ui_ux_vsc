@@ -107,18 +107,45 @@ export class WebviewController {
       const externalUi = await vscode.env.asExternalUri(vscode.Uri.parse(connection.uiBase))
       const externalBridge = await vscode.env.asExternalUri(vscode.Uri.parse(session.baseUrl))
 
-      // Build iframe src with bridge params
-      const uiUrlWithMode = this.buildUiUrlWithMode(externalUi.toString())
-      const iframeSrc = `${uiUrlWithMode}&ideBridge=${encodeURIComponent(externalBridge.toString())}&ideBridgeToken=${encodeURIComponent(session.token)}`
+      // Generate URIs for our compiled resources
+      const scriptPathOnDisk = vscode.Uri.joinPath(this.context.extensionUri, 'out', 'webview.js');
+      const scriptUri = this.webview.asWebviewUri(scriptPathOnDisk);
+      
+      const stylesPathOnDisk = vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'webview', 'styles.css');
+      const stylesUri = this.webview.asWebviewUri(stylesPathOnDisk);
 
-      // Extract origins for dynamic CSP (Remote-SSH compatibility)
-      const uiOrigin = new URL(externalUi.toString()).origin
-      const bridgeOrigin = new URL(externalBridge.toString()).origin
+      // Initial Theme Config
+      const config = vscode.workspace.getConfiguration('opencode');
+      const theme = config.get<string>('theme', 'native'); 
+      const initialThemeClass = theme === 'dragonfu' ? 'dragonfu-theme' : '';
 
-      const html = await this.generateHtmlContent(iframeSrc, { uiOrigin, bridgeOrigin })
-      this.webview.html = html
+      // CSP: Allow scripts/styles from our extension directory
+      const cspSource = this.webview.cspSource;
+
+      this.webview.html = `<!DOCTYPE html>
+      <html lang="en">
+      <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; font-src ${cspSource};">
+          <link href="${stylesUri}" rel="stylesheet">
+          <title>OpenCode UX+</title>
+      </head>
+      <body class="${initialThemeClass}">
+          <chat-view></chat-view>
+          <script type="module" src="${scriptUri}"></script>
+          <script>
+              window.opencodeConfig = {
+                  backendUrl: "${externalUi.toString()}",
+                  bridgeUrl: "${externalBridge.toString()}",
+                  bridgeToken: "${session.token}"
+              };
+          </script>
+      </body>
+      </html>`;
 
       // Message handling is now done entirely by CommunicationBridge
+
     } catch (error) {
       await errorHandler.handleWebviewLoadError(error instanceof Error ? error : new Error(String(error)), {
         connection,
