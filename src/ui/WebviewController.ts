@@ -1,4 +1,5 @@
 import * as vscode from "vscode"
+import { spawn } from "child_process"
 import { BackendConnection } from "../backend/BackendLauncher"
 import { SettingsManager } from "../settings/SettingsManager"
 import { CommunicationBridge } from "./CommunicationBridge"
@@ -164,22 +165,53 @@ export class WebviewController {
         throw new Error("No backend connection available")
       }
 
-      // Mock implementation for now, replaced by actual API call later
-      // In a real scenario, we would POST to this.connection.uiBase + '/api/chat'
+      logger.appendLine(`Sending chat to opencode run: ${text}`)
       
-      logger.appendLine(`Sending chat to backend: ${text}`)
+      const args = ["run", "--session", this.bridgeSessionId || "default", text]
       
-      // Simulate backend response delay
-      setTimeout(() => {
+      // Use "opencode" command directly as we trust the system PATH now
+      const child = spawn("opencode", args, {
+        shell: true,
+        env: { ...process.env } // Pass environment variables
+      })
+
+      let fullOutput = ""
+      let errorOutput = ""
+
+      child.stdout.on("data", (data) => {
+        fullOutput += data.toString()
+      })
+
+      child.stderr.on("data", (data) => {
+        const err = data.toString()
+        errorOutput += err
+        logger.appendLine(`OpenCode stderr: ${err}`)
+      })
+
+      child.on("close", (code) => {
         if (this.communicationBridge) {
+          const finalText = fullOutput.trim() || (code === 0 ? "Done (no output)." : `Error executing command: ${errorOutput}`)
+          
           this.communicationBridge.sendMessage({
             type: "chat.receive",
-            text: `Echo from Extension Backend: ${text}`,
+            text: finalText,
             // @ts-ignore
-            command: "chat.receive" // Use command for our custom UI handler
+            command: "chat.receive"
           })
         }
-      }, 500)
+      })
+
+      child.on("error", (err) => {
+        logger.appendLine(`Failed to spawn opencode run: ${err}`)
+        if (this.communicationBridge) {
+          this.communicationBridge.sendMessage({
+            type: "error",
+            // @ts-ignore
+            command: "chat.error",
+            text: `Failed to spawn process: ${err.message}`
+          })
+        }
+      })
 
     } catch (error) {
       logger.appendLine(`Error handling chat send: ${error}`)
