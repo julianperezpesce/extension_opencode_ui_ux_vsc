@@ -24,7 +24,24 @@ export interface UpdateOpenedFilesMessage extends BaseMessage {
   currentFile?: string | null
 }
 
-export type UnifiedMessage = InsertPathsMessage | PastePathMessage | UpdateOpenedFilesMessage
+export interface ChatReceiveMessage extends BaseMessage {
+  type: "chat.receive"
+  text: string
+  command?: string
+}
+
+export interface ErrorMessage extends BaseMessage {
+  type: "error"
+  text: string
+  command?: string
+}
+
+export type UnifiedMessage =
+  | InsertPathsMessage
+  | PastePathMessage
+  | UpdateOpenedFilesMessage
+  | ChatReceiveMessage
+  | ErrorMessage
 
 /**
  * Interface for plugin communication using unified message protocol

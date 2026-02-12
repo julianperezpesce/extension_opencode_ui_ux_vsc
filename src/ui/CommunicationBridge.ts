@@ -442,6 +442,7 @@ export class CommunicationBridge implements PluginCommunicator {
   // Extended message handling callbacks
   private onUILoadedCallback?: (success: boolean, error?: string) => Promise<void>
   private onReadUris?: (uris: string[]) => Promise<void>
+  private onChatSendCallback?: (text: string) => Promise<void>
 
   /**
    * Set callback for UI loaded events
@@ -455,6 +456,13 @@ export class CommunicationBridge implements PluginCommunicator {
    */
   setReadUrisCallback(callback: (uris: string[]) => Promise<void>): void {
     this.onReadUris = callback
+  }
+
+  /**
+   * Set callback for Chat send requests
+   */
+  setChatSendCallback(callback: (text: string) => Promise<void>): void {
+    this.onChatSendCallback = callback
   }
 
   /**
@@ -519,6 +527,15 @@ export class CommunicationBridge implements PluginCommunicator {
                 logger.appendLine(`URI read request: ${message.uris.length} URIs`)
                 if (this.onReadUris) {
                   await this.onReadUris(message.uris)
+                }
+              }
+              break
+
+            case "chat.send":
+              if (typeof message.text === "string") {
+                logger.appendLine(`Chat send request: ${message.text.substring(0, 50)}...`)
+                if (this.onChatSendCallback) {
+                  await this.onChatSendCallback(message.text)
                 }
               }
               break

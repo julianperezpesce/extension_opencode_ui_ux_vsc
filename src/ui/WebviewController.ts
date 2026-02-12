@@ -60,6 +60,10 @@ export class WebviewController {
         await this.handleReadUris(uris)
       })
 
+      this.communicationBridge.setChatSendCallback(async (text: string) => {
+        await this.handleChatSend(text)
+      })
+
       // Make PathInserter aware of the active communication bridge
       // NOTE: PathInserter is now set by container visibility (editor panel / sidebar).
 
@@ -151,6 +155,42 @@ export class WebviewController {
         connection,
       })
       throw error
+    }
+  }
+
+  private async handleChatSend(text: string): Promise<void> {
+    try {
+      if (!this.connection) {
+        throw new Error("No backend connection available")
+      }
+
+      // Mock implementation for now, replaced by actual API call later
+      // In a real scenario, we would POST to this.connection.uiBase + '/api/chat'
+      
+      logger.appendLine(`Sending chat to backend: ${text}`)
+      
+      // Simulate backend response delay
+      setTimeout(() => {
+        if (this.communicationBridge) {
+          this.communicationBridge.sendMessage({
+            type: "chat.receive",
+            text: `Echo from Extension Backend: ${text}`,
+            // @ts-ignore
+            command: "chat.receive" // Use command for our custom UI handler
+          })
+        }
+      }, 500)
+
+    } catch (error) {
+      logger.appendLine(`Error handling chat send: ${error}`)
+      if (this.communicationBridge) {
+        this.communicationBridge.sendMessage({
+          type: "error",
+          // @ts-ignore
+          command: "chat.error",
+          text: `Failed to send message: ${error}`
+        })
+      }
     }
   }
 
