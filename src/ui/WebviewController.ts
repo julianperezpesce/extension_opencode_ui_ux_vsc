@@ -1,5 +1,6 @@
 import * as vscode from "vscode"
 import * as http from "http"
+import * as path from "path"
 import { BackendConnection } from "../backend/BackendLauncher"
 import { SettingsManager } from "../settings/SettingsManager"
 import { CommunicationBridge } from "./CommunicationBridge"
@@ -62,8 +63,8 @@ export class WebviewController {
         await this.handleReadUris(uris)
       })
 
-      this.communicationBridge.setChatSendCallback(async (text: string) => {
-        await this.handleChatSend(text)
+      this.communicationBridge.setChatSendCallback(async (text: string, context?: any[], options?: any) => {
+        await this.handleChatSend(text, context, options)
       })
 
       // Make PathInserter aware of the active communication bridge
@@ -92,13 +93,29 @@ export class WebviewController {
         this.fileMonitor = new FileMonitor()
         this.fileMonitor.startMonitoring((files: string[], current?: string) => {
           try {
+            // Normalize paths for cross-platform consistency (especially Windows)
+            const normalizedFiles = files.map((f) => this.normalizePath(f)).filter((f): f is string => f !== null)
+            const normalizedCurrent = current ? this.normalizePath(current) : undefined
+
+            // Send to bridge server
             if (this.bridgeSessionId) {
-              // Normalize paths for cross-platform consistency (especially Windows)
-              const normalizedFiles = files.map((f) => this.normalizePath(f)).filter((f): f is string => f !== null)
-              const normalizedCurrent = current ? this.normalizePath(current) : undefined
               bridgeServer.send(this.bridgeSessionId, {
                 type: "updateOpenedFiles",
                 payload: { openedFiles: normalizedFiles, currentFile: normalizedCurrent },
+              })
+            }
+
+            // Send current file to webview for "Add current file" button
+            // Use activeTextEditor.document.uri.fsPath directly - always absolute
+            const activeEditor = vscode.window.activeTextEditor
+            if (activeEditor && activeEditor.document.uri.scheme === "file" && this.communicationBridge) {
+              const absolutePath = activeEditor.document.uri.fsPath
+              const fileName = absolutePath.split('/').pop() || absolutePath
+              this.communicationBridge.sendMessage({
+                type: 'updateCurrentFile',
+                path: absolutePath,
+                name: fileName,
+                timestamp: Date.now()
               })
             }
           } catch (e) {
@@ -211,9 +228,9 @@ export class WebviewController {
     return newSession.id
   }
 
-  private async handleChatSend(text: string): Promise<void> {
+  private async handleChatSend(text: string, context?: any[], options?: any): Promise<void> {
     try {
-      logger.appendLine(`[WebviewController] handleChatSend: ${text.substring(0, 50)}...`)
+      logger.appendLine(`[WebviewController] handleChatSend: ${text.substring(0, 50)}... with ${context?.length || 0} context items`)
       
       if (!this.connection) {
         throw new Error("No backend connection available")
@@ -230,15 +247,85 @@ export class WebviewController {
 
       const apiUrl = `${baseUrl}/session/${this.sessionId}/prompt_async`
       
+      // Build parts array with text and context
+      const parts: any[] = [{ type: "text", text }]
+      
+      // Add context items if provided
+      if (context && context.length > 0) {
+        for (const item of context) {
+          if (item.type === 'file' || item.type === 'code') {
+            // For files and code snippets, we need to read the content
+            try {
+              const resolvedPath = await this.resolveContextPath(item.path)
+              if (!resolvedPath) {
+                logger.appendLine(`[WebviewController] Could not resolve context path: ${item.path}`)
+                parts.push({
+                  type: 'text',
+                  text: `\n\n[Context: ${item.path} - File not accessible]`
+                })
+                continue
+              }
+
+              const fileUri = vscode.Uri.file(resolvedPath)
+              let content = ''
+              
+              // Check if file exists and read it
+              try {
+                await vscode.workspace.fs.stat(fileUri)
+                const bytes = await vscode.workspace.fs.readFile(fileUri)
+                content = Buffer.from(bytes).toString('utf-8')
+                
+                // If line range is specified, extract those lines
+                if (item.lineStart !== undefined) {
+                  const lines = content.split('\n')
+                  const start = Math.max(0, item.lineStart - 1)
+                  const end = item.lineEnd !== undefined ? Math.min(lines.length, item.lineEnd) : start + 1
+                  content = lines.slice(start, end).join('\n')
+                }
+                
+                // Limit content size to avoid overwhelming the context
+                const config = vscode.workspace.getConfiguration("opencode")
+                const maxContentLengthSetting = config.get<number>("context.maxFileChars", 50000)
+                const includeFullContext = options?.includeFullContext === true
+                const maxContentLength = includeFullContext ? 0 : maxContentLengthSetting
+                let displayContent = content
+                if (maxContentLength > 0 && content.length > maxContentLength) {
+                  displayContent = content.substring(0, maxContentLength)
+                  displayContent += `\n\n[... Content truncated, total length: ${content.length} chars ...]`
+                }
+                
+                parts.push({
+                  type: 'text',
+                  text: `\n\n[Context: ${item.path}${item.lineStart ? `:${item.lineStart}${item.lineEnd ? `-${item.lineEnd}` : ''}` : ''}]\n\`\`\`\n${displayContent}\n\`\`\``
+                })
+                
+                logger.appendLine(`[WebviewController] Added file context: ${item.path}`)
+              } catch (err) {
+                logger.appendLine(`[WebviewController] Could not read file ${item.path}: ${err}`)
+                parts.push({
+                  type: 'text',
+                  text: `\n\n[Context: ${item.path} - File not accessible]`
+                })
+              }
+            } catch (err) {
+              logger.appendLine(`[WebviewController] Error processing context item: ${err}`)
+            }
+          } else if (item.type === 'folder') {
+            parts.push({
+              type: 'text',
+              text: `\n\n[Context: Folder ${item.path}]`
+            })
+          }
+        }
+      }
+      
       // Send message using the session API
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          parts: [{ type: "text", text }]
-        }),
+        body: JSON.stringify({ parts }),
       })
 
       if (!response.ok) {
@@ -247,6 +334,8 @@ export class WebviewController {
 
       // Start listening to SSE events and forward to webview
       this.startEventStreamListener();
+      
+      logger.appendLine(`[WebviewController] Message sent successfully, waiting for response...`);
       
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -268,6 +357,88 @@ export class WebviewController {
           text: `Failed to send message: ${errorMessage}`
         })
       }
+    }
+  }
+
+  private async resolveContextPath(rawPath: string | undefined): Promise<string | null> {
+    // ALWAYS log at the start
+    logger.appendLine(`[WebviewController] resolveContextPath START: "${rawPath}"`)
+    
+    try {
+      if (!rawPath || rawPath.trim().length === 0) {
+        logger.appendLine(`[WebviewController] resolveContextPath: empty path, returning null`)
+        return null
+      }
+
+      let resolvedPath = rawPath.trim()
+
+      if (resolvedPath.startsWith("file://")) {
+        resolvedPath = vscode.Uri.parse(resolvedPath).fsPath
+        logger.appendLine(`[WebviewController] resolveContextPath: converted from file://: "${resolvedPath}"`)
+      }
+
+      // If already absolute, just normalize and return
+      if (path.isAbsolute(resolvedPath)) {
+        const normalized = path.normalize(resolvedPath)
+        logger.appendLine(`[WebviewController] resolveContextPath (absolute): "${rawPath}" -> "${normalized}"`)
+        return normalized
+      }
+
+      logger.appendLine(`[WebviewController] resolveContextPath: path is relative: "${resolvedPath}"`)
+
+      // Try all workspace folders to find the correct one
+      const workspaceFolders = vscode.workspace.workspaceFolders
+      logger.appendLine(`[WebviewController] resolveContextPath: workspaceFolders = ${JSON.stringify(workspaceFolders)}`)
+      
+      if (workspaceFolders && workspaceFolders.length > 0) {
+        // Try each workspace folder to see if the file exists there
+        for (const folder of workspaceFolders) {
+          const candidate = path.join(folder.uri.fsPath, resolvedPath)
+          logger.appendLine(`[WebviewController] resolveContextPath: trying workspace folder: "${candidate}"`)
+          try {
+            // Check if file exists
+            await vscode.workspace.fs.stat(vscode.Uri.file(candidate))
+            const normalized = path.normalize(candidate)
+            logger.appendLine(`[WebviewController] resolveContextPath (workspace SUCCESS): "${rawPath}" -> "${normalized}"`)
+            return normalized
+          } catch (e) {
+            logger.appendLine(`[WebviewController] resolveContextPath: file not in ${folder.uri.fsPath}: ${e}`)
+            // File doesn't exist in this workspace, try next
+          }
+        }
+      } else {
+        logger.appendLine(`[WebviewController] resolveContextPath: no workspace folders, using fallback`)
+      }
+
+      // Fallback: try /home/julian as base (for development mode)
+      const fallbackPath = path.join("/home/julian", resolvedPath)
+      logger.appendLine(`[WebviewController] resolveContextPath: trying fallback: "${fallbackPath}"`)
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(fallbackPath))
+        const normalized = path.normalize(fallbackPath)
+        logger.appendLine(`[WebviewController] resolveContextPath (fallback SUCCESS): "${rawPath}" -> "${normalized}"`)
+        return normalized
+      } catch (e) {
+        logger.appendLine(`[WebviewController] resolveContextPath: fallback failed: ${e}`)
+      }
+
+      // Last resort: assume it's in extension_opencode_ui_ux_vsc subfolder
+      const lastResort = path.join("/home/julian/extension_opencode_ui_ux_vsc", resolvedPath)
+      logger.appendLine(`[WebviewController] resolveContextPath: trying last resort: "${lastResort}"`)
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.file(lastResort))
+        const normalized = path.normalize(lastResort)
+        logger.appendLine(`[WebviewController] resolveContextPath (last resort SUCCESS): "${rawPath}" -> "${normalized}"`)
+        return normalized
+      } catch (e) {
+        logger.appendLine(`[WebviewController] resolveContextPath: last resort failed: ${e}`)
+      }
+
+      logger.appendLine(`[WebviewController] Could not resolve path after all attempts: ${rawPath}`)
+      return null
+    } catch (err) {
+      logger.appendLine(`[WebviewController] resolveContextPath ERROR for "${rawPath}": ${err}`)
+      return null
     }
   }
 
@@ -345,6 +516,9 @@ export class WebviewController {
       return;
     }
 
+    // Log all events for debugging
+    logger.appendLine(`[WebviewController] Received event: ${event.type}`);
+
     switch (event.type) {
       // Handle standard message completion
       case 'chat.response':
@@ -378,6 +552,7 @@ export class WebviewController {
         const textContent = delta?.text || part?.text || (typeof part === 'string' ? part : null);
 
         if (textContent) {
+          logger.appendLine(`[WebviewController] Sending streaming text: ${textContent.substring(0, 100)}...`);
           this.communicationBridge.sendMessage({
             type: 'chat.streaming',
             text: textContent

@@ -6,22 +6,29 @@
 export interface BaseMessage {
   type: string
   timestamp?: number
+  [key: string]: any
 }
 
 export interface InsertPathsMessage extends BaseMessage {
   type: "insertPaths"
-  paths: string[]
+  payload: { paths: string[] }
 }
 
 export interface PastePathMessage extends BaseMessage {
   type: "pastePath"
-  path: string
+  payload: { path: string }
 }
 
 export interface UpdateOpenedFilesMessage extends BaseMessage {
   type: "updateOpenedFiles"
   openedFiles?: string[]
   currentFile?: string | null
+}
+
+export interface UpdateCurrentFileMessage extends BaseMessage {
+  type: "updateCurrentFile"
+  path: string
+  name: string
 }
 
 export interface ChatReceiveMessage extends BaseMessage {
@@ -45,6 +52,7 @@ export type UnifiedMessage =
   | InsertPathsMessage
   | PastePathMessage
   | UpdateOpenedFilesMessage
+  | UpdateCurrentFileMessage
   | ChatReceiveMessage
   | ChatStreamingMessage
   | ErrorMessage

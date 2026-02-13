@@ -158,11 +158,15 @@ export class CommunicationBridge implements PluginCommunicator {
         return
       }
 
-      // Route through bridge server SSE (required)
-      if (!this.sendViaBridge("insertPaths", { paths: validPaths })) {
-        logger.appendLine("Bridge session not set; cannot send insertPaths")
-        return
-      }
+      // Send to webview via postMessage (primary method)
+      this.sendMessage({
+        type: "insertPaths",
+        payload: { paths: validPaths },
+        timestamp: Date.now()
+      })
+
+      // Also route through bridge server SSE for backward compatibility
+      this.sendViaBridge("insertPaths", { paths: validPaths })
 
       logger.appendLine(`Inserted ${validPaths.length} paths via bridge: ${validPaths.join(", ")}`)
     } catch (error) {
@@ -196,11 +200,15 @@ export class CommunicationBridge implements PluginCommunicator {
         return
       }
 
-      // Route through bridge server SSE (required)
-      if (!this.sendViaBridge("pastePath", { path: normalizedPath })) {
-        logger.appendLine("Bridge session not set; cannot send pastePath")
-        return
-      }
+      // Send to webview via postMessage (primary method)
+      this.sendMessage({
+        type: "pastePath",
+        payload: { path: normalizedPath },
+        timestamp: Date.now()
+      })
+
+      // Also route through bridge server SSE for backward compatibility
+      this.sendViaBridge("pastePath", { path: normalizedPath })
 
       logger.appendLine(`Pasted path via bridge: ${normalizedPath}`)
     } catch (error) {
@@ -448,7 +456,7 @@ export class CommunicationBridge implements PluginCommunicator {
   // Extended message handling callbacks
   private onUILoadedCallback?: (success: boolean, error?: string) => Promise<void>
   private onReadUris?: (uris: string[]) => Promise<void>
-  private onChatSendCallback?: (text: string) => Promise<void>
+  private onChatSendCallback?: (text: string, context?: any[], options?: any) => Promise<void>
 
   /**
    * Set callback for UI loaded events
@@ -467,7 +475,7 @@ export class CommunicationBridge implements PluginCommunicator {
   /**
    * Set callback for Chat send requests
    */
-  setChatSendCallback(callback: (text: string) => Promise<void>): void {
+  setChatSendCallback(callback: (text: string, context?: any[], options?: any) => Promise<void>): void {
     this.onChatSendCallback = callback
   }
 
@@ -543,14 +551,71 @@ export class CommunicationBridge implements PluginCommunicator {
               console.log('[CommunicationBridge] Chat send case matched');
               logger.appendLine(`[CommunicationBridge] Chat send case matched`);
               if (typeof message.text === "string") {
-                logger.appendLine(`Chat send request: ${message.text.substring(0, 50)}...`)
+                const context = message.context;
+                const options = message.options;
+                logger.appendLine(`Chat send request: ${message.text.substring(0, 50)}... with ${context?.length || 0} context items`)
                 if (this.onChatSendCallback) {
-                  console.log('[CommunicationBridge] Executing callback');
-                  await this.onChatSendCallback(message.text)
+                  console.log('[CommunicationBridge] Executing callback with context');
+                  await this.onChatSendCallback(message.text, context, options)
                 } else {
                   console.log('[CommunicationBridge] No callback registered!');
                   logger.appendLine(`[CommunicationBridge] No callback registered!`);
                 }
+              }
+              break
+
+            case "context.requestFile":
+              try {
+                // Open file picker dialog
+                const files = await vscode.window.showOpenDialog({
+                  canSelectFiles: true,
+                  canSelectFolders: true,
+                  canSelectMany: true,
+                  openLabel: 'Add to Context'
+                })
+                if (files && files.length > 0) {
+                  const paths = files.map(f => f.fsPath)
+                  this.insertPaths(paths)
+                  logger.appendLine(`Added ${paths.length} files from picker to context`)
+                }
+              } catch (e) {
+                logger.appendLine(`Failed to open file picker: ${e}`)
+              }
+              break
+
+            case "context.addCurrentFile":
+              try {
+                logger.appendLine(`[CommunicationBridge] context.addCurrentFile received`)
+                const activeEditor = vscode.window.activeTextEditor
+                if (activeEditor && activeEditor.document.uri.scheme === "file") {
+                  const filePath = activeEditor.document.uri.fsPath
+                  logger.appendLine(`[CommunicationBridge] Active file path: ${filePath}`)
+                  this.insertPaths([filePath])
+                  logger.appendLine(`[CommunicationBridge] Added active file to context: ${filePath}`)
+                } else {
+                  logger.appendLine("[CommunicationBridge] No active file available to add to context")
+                  vscode.window.showWarningMessage("No active file available to add to context")
+                }
+              } catch (e) {
+                logger.appendLine(`[CommunicationBridge] Failed to add active file to context: ${e}`)
+              }
+              break
+
+            case "context.addFile":
+              try {
+                // Handle file drop from webview - resolve path and add to context
+                const filePath = message.path
+                if (filePath) {
+                  const normalized = this.normalizePath(filePath)
+                  if (normalized) {
+                    this.insertPaths([normalized])
+                    logger.appendLine(`Added dropped file to context: ${normalized}`)
+                  } else {
+                    logger.appendLine(`Failed to normalize dropped file path: ${filePath}`)
+                  }
+                }
+              } catch (e) {
+                logger.appendLine(`Failed to add dropped file: ${e}`)
               }
               break
 
