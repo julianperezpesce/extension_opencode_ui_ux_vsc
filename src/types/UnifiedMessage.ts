@@ -30,6 +30,11 @@ export interface ChatReceiveMessage extends BaseMessage {
   command?: string
 }
 
+export interface ChatStreamingMessage extends BaseMessage {
+  type: "chat.streaming"
+  text: string
+}
+
 export interface ErrorMessage extends BaseMessage {
   type: "error"
   text: string
@@ -41,6 +46,7 @@ export type UnifiedMessage =
   | PastePathMessage
   | UpdateOpenedFilesMessage
   | ChatReceiveMessage
+  | ChatStreamingMessage
   | ErrorMessage
 
 /**

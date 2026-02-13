@@ -35,8 +35,14 @@ export class CommunicationBridge implements PluginCommunicator {
     this.context = options.context
     this.onStateChange = options.onStateChange
 
+    console.log('[CommunicationBridge] Constructor called, webview available:', !!this.webview);
+    logger.appendLine(`[CommunicationBridge] Constructor called, webview available: ${!!this.webview}`);
+
     if (this.webview) {
       this.setupMessageHandlers()
+    } else {
+      console.warn('[CommunicationBridge] No webview provided!');
+      logger.appendLine('[CommunicationBridge] WARNING: No webview provided!');
     }
   }
 
@@ -483,6 +489,8 @@ export class CommunicationBridge implements PluginCommunicator {
 
     this.messageHandlerDisposable = this.webview.onDidReceiveMessage(
       async (message) => {
+        console.log('[CommunicationBridge] Raw message received:', JSON.stringify(message));
+        logger.appendLine(`[CommunicationBridge] Raw message received: ${JSON.stringify(message)}`);
         try {
           switch (message.type) {
             case "openFile":
@@ -532,10 +540,16 @@ export class CommunicationBridge implements PluginCommunicator {
               break
 
             case "chat.send":
+              console.log('[CommunicationBridge] Chat send case matched');
+              logger.appendLine(`[CommunicationBridge] Chat send case matched`);
               if (typeof message.text === "string") {
                 logger.appendLine(`Chat send request: ${message.text.substring(0, 50)}...`)
                 if (this.onChatSendCallback) {
+                  console.log('[CommunicationBridge] Executing callback');
                   await this.onChatSendCallback(message.text)
+                } else {
+                  console.log('[CommunicationBridge] No callback registered!');
+                  logger.appendLine(`[CommunicationBridge] No callback registered!`);
                 }
               }
               break

@@ -185,15 +185,22 @@ export class ChatView extends LitElement {
 
     // Communication with Extension
     private dispatchMessageToExtension(text: string) {
+        console.log('[ChatView] Attempting to send message:', text);
         // @ts-ignore
-        const vscode = window.acquireVsCodeApi ? window.acquireVsCodeApi() : null;
+        const vscode = window.vscode || (window.acquireVsCodeApi ? window.acquireVsCodeApi() : null);
         if (vscode) {
-            vscode.postMessage({
-                type: 'chat.send',
-                text: text
-            });
+            console.log('[ChatView] VS Code API acquired, posting message');
+            try {
+                vscode.postMessage({
+                    type: 'chat.send',
+                    text: text
+                });
+                console.log('[ChatView] Message posted successfully');
+            } catch (err) {
+                console.error('[ChatView] Error posting message:', err);
+            }
         } else {
-            console.log('Mock send:', text);
+            console.error('[ChatView] VS Code API NOT available - falling back to mock');
             // Mock response for testing
             setTimeout(() => {
                 this.isThinking = false;
@@ -207,4 +214,46 @@ export class ChatView extends LitElement {
         this.isThinking = false;
         this.addMessage('assistant', text);
     }
+    
+    public handleServerEvent(event: any) {
+        console.log('[ChatView] Processing event:', event.type, event);
+        
+        switch (event.type) {
+            case 'chat.response':
+            case 'message.complete':
+                if (event.text || event.content) {
+                    this.isThinking = false;
+                    this.addMessage('assistant', event.text || event.content);
+                }
+                break;
+                
+            case 'chat.streaming':
+            case 'message.chunk':
+                // Handle streaming responses
+                if (event.text || event.content) {
+                    this.updateLastAssistantMessage(event.text || event.content);
+                }
+                break;
+                
+            default:
+                console.log('[ChatView] Unknown event type:', event.type);
+        }
+    }
+    
+    private updateLastAssistantMessage(content: string) {
+        // Stop thinking indicator as soon as we start receiving content
+        if (this.isThinking) {
+            this.isThinking = false;
+        }
+
+        const lastMsg = this.messages[this.messages.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+            lastMsg.content = content;
+            this.messages = [...this.messages];
+            this.requestUpdate();
+        } else {
+            this.addMessage('assistant', content);
+        }
+    }
 }
+

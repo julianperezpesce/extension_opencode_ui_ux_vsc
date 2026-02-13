@@ -271,7 +271,7 @@ export class BackendLauncher {
    * @returns Array of command arguments
    */
   private buildCommandArgs(binaryPath: string, skipCustomCommand = false): string[] {
-    const args = [binaryPath, "serve"]
+    const args = [binaryPath, "serve", "--cors", "*"]
 
     if (!skipCustomCommand) {
       const customCommand = this.getCustomCommand()
@@ -282,7 +282,7 @@ export class BackendLauncher {
           logger.appendLine(`Using extra serve args: '${extraArgs.join(" ")}'`)
         }
       } else {
-        logger.appendLine("Using default serve args")
+        logger.appendLine("Using default serve args with CORS enabled")
       }
     }
 

@@ -1,4 +1,5 @@
 import * as vscode from "vscode"
+import * as http from "http"
 import { BackendConnection } from "../backend/BackendLauncher"
 import { SettingsManager } from "../settings/SettingsManager"
 import { CommunicationBridge } from "./CommunicationBridge"
@@ -46,6 +47,7 @@ export class WebviewController {
 
   async load(connection: BackendConnection): Promise<void> {
     this.connection = connection
+    logger.appendLine('[WebviewController] load() started');
 
     try {
       // Initialize communication bridge
@@ -125,26 +127,42 @@ export class WebviewController {
 
       // CSP: Allow scripts/styles from our extension directory
       const cspSource = this.webview.cspSource;
+      
+      // Get the exact backend origin for connect-src
+      const backendUrl = new URL(connection.uiBase);
+      const backendOrigin = `${backendUrl.protocol}//${backendUrl.host}`;
 
       this.webview.html = `<!DOCTYPE html>
       <html lang="en">
       <head>
           <meta charset="UTF-8">
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; font-src ${cspSource};">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; connect-src ${backendOrigin} http://127.0.0.1:* http://localhost:*;">
           <link href="${stylesUri}" rel="stylesheet">
-          <title>OpenCode UX+</title>
+          <title>OpenCode DragonFu</title>
       </head>
       <body class="${initialThemeClass}">
           <chat-view></chat-view>
-          <script type="module" src="${scriptUri}"></script>
           <script>
+              // Set config BEFORE loading the main script
               window.opencodeConfig = {
                   backendUrl: "${externalUi.toString()}",
                   bridgeUrl: "${externalBridge.toString()}",
                   bridgeToken: "${session.token}"
               };
+              
+              // Debug: Verify VS Code API is available
+              console.log('[Webview] Checking for VS Code API...');
+              // @ts-ignore
+              if (typeof acquireVsCodeApi === 'function') {
+                  // @ts-ignore
+                  window.vscode = acquireVsCodeApi();
+                  console.log('[Webview] VS Code API acquired successfully');
+              } else {
+                  console.error('[Webview] VS Code API NOT available - acquireVsCodeApi is not a function');
+              }
           </script>
+          <script type="module" src="${scriptUri}"></script>
       </body>
       </html>`;
 
@@ -158,54 +176,221 @@ export class WebviewController {
     }
   }
 
+  private sessionId: string | null = null
+
+  private async getOrCreateSession(): Promise<string> {
+    const uiBaseUrl = new URL(this.connection!.uiBase)
+    const baseUrl = uiBaseUrl.origin
+
+    // Try to get existing sessions first
+    logger.appendLine('[WebviewController] Fetching existing sessions...');
+    const sessionsResponse = await fetch(`${baseUrl}/session`)
+    
+    if (sessionsResponse.ok) {
+      const sessions = await sessionsResponse.json() as Array<{id: string}>
+      if (sessions && sessions.length > 0) {
+        logger.appendLine(`[WebviewController] Found existing session: ${sessions[0].id}`)
+        return sessions[0].id
+      }
+    }
+
+    // Create a new session if none exists
+    logger.appendLine('[WebviewController] Creating new session...');
+    const createResponse = await fetch(`${baseUrl}/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "VS Code Chat" }),
+    })
+
+    if (!createResponse.ok) {
+      throw new Error(`Failed to create session: ${createResponse.status}`)
+    }
+
+    const newSession = await createResponse.json() as {id: string}
+    logger.appendLine(`[WebviewController] Created new session: ${newSession.id}`)
+    return newSession.id
+  }
+
   private async handleChatSend(text: string): Promise<void> {
     try {
+      logger.appendLine(`[WebviewController] handleChatSend: ${text.substring(0, 50)}...`)
+      
       if (!this.connection) {
         throw new Error("No backend connection available")
       }
 
-      // Extract the base URL from uiBase (e.g., "http://127.0.0.1:4096/app" -> "http://127.0.0.1:4096")
+      // Extract the base URL from uiBase
       const uiBaseUrl = new URL(this.connection.uiBase)
-      const apiUrl = `${uiBaseUrl.origin}/tui/append-prompt`
+      const baseUrl = uiBaseUrl.origin
 
-      logger.appendLine(`Sending to API: ${apiUrl}`)
+      // Get or create a session
+      if (!this.sessionId) {
+        this.sessionId = await this.getOrCreateSession()
+      }
 
-      // Use the official OpenCode API endpoint
+      const apiUrl = `${baseUrl}/session/${this.sessionId}/prompt_async`
+      
+      // Send message using the session API
       const response = await fetch(apiUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          parts: [{ type: "text", text }]
+        }),
       })
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`)
       }
 
-      // The API returns "true" on success, but we need to wait for the actual response
-      // Since this is async and the TUI handles the output, we'll acknowledge receipt
-      // The user will see the response in their OpenCode TUI session
+      // Start listening to SSE events and forward to webview
+      this.startEventStreamListener();
       
-      if (this.communicationBridge) {
-        this.communicationBridge.sendMessage({
-          type: "chat.receive",
-          text: "Mensaje enviado a OpenCode. Revisa el panel de sesiones para ver la respuesta.",
-          // @ts-ignore
-          command: "chat.receive"
-        })
-      }
-
     } catch (error) {
-      logger.appendLine(`Error handling chat send: ${error}`)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : '';
+      
+      logger.appendLine(`[WebviewController] ERROR handling chat send: ${errorMessage}`);
+      if (errorStack) {
+        logger.appendLine(`[WebviewController] Stack: ${errorStack}`);
+      }
+      
+      // Show user-facing error
+      vscode.window.showErrorMessage(`Failed to send message: ${errorMessage}`);
+      
       if (this.communicationBridge) {
         this.communicationBridge.sendMessage({
           type: "error",
           // @ts-ignore
           command: "chat.error",
-          text: `Failed to send message: ${error}`
+          text: `Failed to send message: ${errorMessage}`
         })
       }
+    }
+  }
+
+  private eventStreamRequest?: http.ClientRequest
+
+  private startEventStreamListener(): void {
+    if (this.eventStreamRequest) {
+      return;
+    }
+
+    if (!this.connection) {
+      logger.appendLine('[WebviewController] No connection available for event stream');
+      return;
+    }
+
+    const uiBaseUrl = new URL(this.connection.uiBase);
+    const eventUrl = `${uiBaseUrl.origin}/event`;
+    
+    logger.appendLine(`[WebviewController] Connecting to event stream: ${eventUrl}`);
+    
+    try {
+      this.eventStreamRequest = http.get(eventUrl, (res) => {
+        logger.appendLine(`[WebviewController] Event stream connected (status: ${res.statusCode})`);
+        
+        if (res.statusCode !== 200) {
+            vscode.window.showErrorMessage(`Failed to connect to OpenCode event stream (Status: ${res.statusCode})`);
+            return;
+        }
+
+        let buffer = '';
+        
+        res.on('data', (chunk) => {
+          buffer += chunk.toString();
+          const lines = buffer.split('\n');
+          // Keep the last partial line in the buffer
+          buffer = lines.pop() || '';
+          
+          for (const line of lines) {
+            if (line.trim().startsWith('data: ')) {
+              const data = line.trim().slice(6);
+              // Skip keep-alive messages or empty data
+              if (!data || data === '{}') continue;
+              
+              try {
+                const eventData = JSON.parse(data);
+                this.handleServerEvent(eventData);
+              } catch (err) {
+                logger.appendLine(`[WebviewController] Error parsing event: ${err}`);
+              }
+            }
+          }
+        });
+
+        res.on('end', () => {
+          logger.appendLine('[WebviewController] Event stream ended by server');
+          this.eventStreamRequest = undefined;
+        });
+      });
+
+      this.eventStreamRequest.on('error', (err) => {
+        logger.appendLine(`[WebviewController] Event stream error: ${err.message}`);
+        vscode.window.showErrorMessage(`OpenCode event stream error: ${err.message}`);
+        this.eventStreamRequest = undefined;
+      });
+      
+    } catch (err) {
+      const msg = `Failed to create event stream request: ${err}`;
+      logger.appendLine(`[WebviewController] ${msg}`);
+      vscode.window.showErrorMessage(msg);
+    }
+  }
+
+  private handleServerEvent(event: any): void {
+    if (!this.communicationBridge) {
+      return;
+    }
+
+    switch (event.type) {
+      // Handle standard message completion
+      case 'chat.response':
+      case 'message.complete':
+        if (event.text || event.content) {
+          this.communicationBridge.sendMessage({
+            type: 'chat.receive',
+            text: event.text || event.content
+          });
+        }
+        break;
+        
+      // Handle standard streaming
+      case 'chat.streaming':
+      case 'message.chunk':
+        if (event.text || event.content) {
+          this.communicationBridge.sendMessage({
+            type: 'chat.streaming',
+            text: event.text || event.content
+          });
+        }
+        break;
+
+      // Handle OpenCode native streaming events
+      case 'message.part.updated':
+        // Check for text content in the part update
+        const part = event.properties?.part;
+        const delta = event.properties?.delta;
+        
+        // Priority to delta (incremental update), then full text if available
+        const textContent = delta?.text || part?.text || (typeof part === 'string' ? part : null);
+
+        if (textContent) {
+          this.communicationBridge.sendMessage({
+            type: 'chat.streaming',
+            text: textContent
+          });
+        }
+        break;
+
+      case 'message.updated':
+        // Metadata update, ignore
+        break;
+        
+      default:
+        // Ignore other events
     }
   }
 

@@ -9,15 +9,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/julianperezpesce/extension_opencode_ui_ux_vsc.git"
-  },
-  "license": "MIT",
-  "homepage": "https://github.com/paviko/opencode-ide-plugin",
-  "repository": {
-    "type": "git",
     "url": "https://github.com/paviko/opencode-ide-plugin.git",
     "directory": "hosts/vscode-plugin"
   },
+  "license": "MIT",
+  "homepage": "https://github.com/paviko/opencode-ide-plugin",
   "bugs": {
     "url": "https://github.com/paviko/opencode-ide-plugin/issues"
   },
@@ -202,6 +198,7 @@
     "prebuild": "pnpm run build:binaries && pnpm run compile:production"
   },
   "devDependencies": {
+    "@types/eventsource": "^1.1.15",
     "@types/glob": "^9.0.0",
     "@types/mocha": "^10.0.6",
     "@types/node": "18.x",
