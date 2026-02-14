@@ -6,6 +6,7 @@ import { ChatMessage } from './chat-message';
 import './chat-input';
 import './connection-status';
 import './context-bar';
+import './command-buttons';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
 
@@ -653,17 +654,9 @@ export class ChatView extends LitElement {
                     @remove-item="${(e: CustomEvent) => this.removeContextItem(e.detail.id)}"
                 ></context-bar>
 
-                <div class="context-controls">
-                    <button class="command-btn explain" @click="${this.handleExplain}" title="Explain selected code">
-                        💡 Explain
-                    </button>
-                    <button class="command-btn fix" @click="${this.handleFix}" title="Fix errors in selected code">
-                        🔧 Fix
-                    </button>
-                    <button class="command-btn test" @click="${this.handleTest}" title="Generate tests for selected code">
-                        🧪 Test
-                    </button>
-                </div>
+                <command-buttons
+                    @command="${this.handleCommand}"
+                ></command-buttons>
 
                 <chat-input
                     placeholder="Ask OpenCode (Try /help, @filename, or drag files)..."
@@ -1005,6 +998,10 @@ export class ChatView extends LitElement {
 
     private toggleFullContext() {
         this.includeFullContext = !this.includeFullContext;
+    }
+
+    private handleCommand(e: CustomEvent) {
+        this.executeSlashCommand(e.detail.command);
     }
 
     private handleExplain() {
