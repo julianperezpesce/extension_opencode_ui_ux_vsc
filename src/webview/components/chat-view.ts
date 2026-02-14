@@ -4,6 +4,7 @@ import { provideVSCodeDesignSystem, vsCodeButton, vsCodeTextArea, vsCodeTag, vsC
 import { renderMarkdown, parseMessageForActions, detectMessageType } from '../utils/markdown-renderer';
 import { ChatMessage } from './chat-message';
 import './chat-input';
+import './connection-status';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
 
@@ -635,14 +636,10 @@ export class ChatView extends LitElement {
                 ` : ''}
             </div>
 
-            <div class="connection-status">
-                <span class="connection-dot ${this.backendConnected ? 'connected' : ''}" 
-                      title="${this.backendConnected ? (this.backendReused ? 'Connected to existing backend' : 'Backend running') : 'Connecting...'}">
-                </span>
-                <span class="connection-text">
-                    ${this.backendConnected ? (this.backendReused ? 'Existing' : 'New') : 'Connecting'}
-                </span>
-            </div>
+            <connection-status
+                .connected="${this.backendConnected}"
+                .reused="${this.backendReused}"
+            ></connection-status>
 
             <div class="input-area">
                 <div class="context-controls">
