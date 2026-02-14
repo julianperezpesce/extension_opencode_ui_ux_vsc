@@ -129,3 +129,75 @@ This document provides essential information for AI agents operating in the `ext
 - **Safety:** Do not modify `package-lock.json` unless adding dependencies.
 - **Verification:** Run `npm run compile` after making changes to TypeScript files to ensure type safety.
 - **Context:** When fixing bugs, check `src/utils/ErrorHandler.ts` to see if a specific error category applies.
+
+## 9. Development Plan
+
+This document is used to maintain context across sessions. At the start of each session, simply say:
+> "Continuamos con la Fase X. Revisa el plan en @AGENTS.md"
+
+---
+
+### Fase 1: Setup Básico
+- [x] Configuración inicial del proyecto VS Code Extension
+- [x] Estructura de directorios
+- [x] Hello world básico
+
+### Fase 2: Comunicación Core
+- [x] WebviewManager básico
+- [x] CommunicationBridge
+- [x] Message passing entre extensión y webview
+
+### Fase 3: Backend Integration
+- [x] BackendLauncher
+- [x] Proceso hijo para OpenCode
+- [x] Chat SSE streaming
+- [x] Auto-detección de backend existente (puerto 4096)
+
+### Fase 4: UI/UX Improvements *(COMPLETA)*
+- [x] Slash commands (/explain, /fix, /test)
+- [x] Diff preview con Volver/Descartar
+- [x] Markdown rendering con highlight.js
+- [x] Botones condicionales (Copy/Preview solo para fix/test)
+- [x] Estilos sin neon (confort visual)
+- [x] Connection status indicator en UI
+
+### Fase 5: Testing y Refactorización *(ACTUAL)*
+- [ ] Tests unitarios
+- [ ] Refactorización de clases grandes (ChatView)
+- [ ] Separar componentes del webview en archivos individuales
+- [ ] Manejo de errores mejorado
+- [ ] Logging estructurado
+
+### Fase 6: Features Avanzados *(pendiente)*
+- [ ] Apply button (escribir cambios a archivos)
+- [ ] Más slash commands
+- [ ] Mejoras de accesibilidad
+- [ ] Tema claro/oscuro
+- [ ] Soporte para múltiples archivos en diff
+- [ ] Notificaciones
+
+---
+
+## Mejoras Identificadas (Backlog)
+
+Ideas y mejoras que surgen durante el desarrollo:
+
+### Alta Prioridad
+- [ ] Implementar Apply button para escribir cambios reales a archivos
+- [ ] Tests unitarios con Mocha/Jest
+
+### Media Prioridad
+- [ ] Refactorizar ChatView en múltiples componentes
+- [ ] Agregar más slash commands (/refactor, /optimize, etc.)
+- [ ] Sistema de notificaciones toast
+
+### Baja Prioridad / Ideas
+- [ ] Tema claro/oscuro
+- [ ] Soporte drag & drop de múltiples archivos
+- [ ] Historial de conversaciones
+- [ ] Exportar conversación a markdown
+
+---
+
+**Última actualización:** Fase 4 completada - Ahora en Fase 5: Testing y Refactorización
+**Para iniciar una nueva sesión:** "Continuamos con la Fase X. Revisa el plan en @AGENTS.md"

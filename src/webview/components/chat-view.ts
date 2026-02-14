@@ -1,16 +1,10 @@
-import { LitElement, html, css } from 'lit';
+import { LitElement, html, css, TemplateResult } from 'lit';
 import { customElement, property, state } from 'lit/decorators.js';
 import { provideVSCodeDesignSystem, vsCodeButton, vsCodeTextArea, vsCodeTag, vsCodeBadge } from '@vscode/webview-ui-toolkit';
+import { renderMarkdown, parseMessageForActions, detectMessageType } from '../utils/markdown-renderer';
+import { ChatMessage } from './chat-message';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
-
-interface ChatMessage {
-    id: string;
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-    timestamp: number;
-    context?: ContextItem[];
-}
 
 interface ContextItem {
     id: string;
@@ -20,6 +14,18 @@ interface ContextItem {
     lineStart?: number;
     lineEnd?: number;
     content?: string;
+}
+
+interface SlashCommand {
+    command: string;
+    args?: string;
+}
+
+interface EditorSelection {
+    text: string;
+    filePath?: string;
+    startLine?: number;
+    endLine?: number;
 }
 
 @customElement('chat-view')
@@ -38,6 +44,36 @@ export class ChatView extends LitElement {
 
     @state()
     private includeFullContext = false;
+
+    @state()
+    private pendingSlashCommand: SlashCommand | null = null;
+
+    @state()
+    private waitingForSelection = false;
+
+    @state()
+    private backendConnected = false;
+
+    @state()
+    private backendReused = false;
+
+    @state()
+    private lastUserCommandType: 'explain' | 'fix' | 'test' | null = null;
+
+    @state()
+    private showRangeDialog = false;
+
+    @state()
+    private pendingRangeCommand: SlashCommand | null = null;
+
+    @state()
+    private rangeDialogFileInfo: { path: string; totalLines: number } | null = null;
+
+    @state()
+    private rangeStart = '';
+
+    @state()
+    private rangeEnd = '';
 
     @property({ type: Boolean })
     isThinking = false;
@@ -84,10 +120,193 @@ export class ChatView extends LitElement {
             border-left: 3px solid var(--vscode-activityBar-activeBorder);
         }
 
+        .message.assistant.explain {
+            border-left-color: var(--vscode-charts-cyan);
+        }
+
+        .message.assistant.fix {
+            border-left-color: var(--vscode-charts-red);
+        }
+
+        .message.assistant.test {
+            border-left-color: var(--vscode-charts-green);
+        }
+
+        .message-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .message-emoji {
+            font-size: 1.2rem;
+        }
+
+        .message .content {
+            line-height: 1.6;
+        }
+
+        .message .content h1,
+        .message .content h2,
+        .message .content h3 {
+            margin-top: 0.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .message .content h1 { font-size: 1.4rem; }
+        .message .content h2 { font-size: 1.2rem; }
+        .message .content h3 { font-size: 1.1rem; }
+
+        .message .content p {
+            margin: 0.5rem 0;
+        }
+
+        .message .content ul,
+        .message .content ol {
+            margin: 0.5rem 0;
+            padding-left: 1.5rem;
+        }
+
+        .message .content li {
+            margin: 0.25rem 0;
+        }
+
+        .message .content pre.code-block {
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 6px;
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            overflow-x: auto;
+            font-size: 0.9em;
+        }
+
+        .message .content code {
+            font-family: var(--vscode-editor-font-family, 'Consolas', 'Courier New', monospace);
+            background-color: var(--vscode-editor-wordHighlightBackground);
+            padding: 0.1rem 0.3rem;
+            border-radius: 3px;
+            font-size: 0.9em;
+        }
+
+        .message .content pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+
+        .message-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            padding-top: 0.5rem;
+            border-top: 1px solid var(--vscode-widget-border);
+        }
+
+        .action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.3rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            border: 1px solid var(--vscode-button-border);
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .action-btn:hover {
+            background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .action-btn.apply {
+            background-color: rgba(0, 255, 136, 0.15);
+            border-color: var(--vscode-charts-green);
+            color: var(--vscode-charts-green);
+        }
+
+        .action-btn.apply:hover {
+            background-color: rgba(0, 255, 136, 0.25);
+        }
+
+        :host-context(.dragonfu-theme) .action-btn.apply {
+            background-color: rgba(0, 255, 136, 0.15);
+            color: var(--dragonfu-neon-green, #00ff88);
+            border-color: var(--dragonfu-neon-green, #00ff88);
+        }
+
+        :host-context(.dragonfu-theme) .action-btn.apply:hover {
+            background-color: rgba(0, 255, 136, 0.25);
+        }
+
+        /* Highlight.js theme integration */
+        .message .content .hljs {
+            background: transparent;
+            color: var(--vscode-editor-foreground);
+        }
+
+        .message .content .hljs-keyword,
+        .message .content .hljs-selector-tag,
+        .message .content .hljs-title {
+            color: var(--vscode-charts-purple);
+        }
+
+        .message .content .hljs-string,
+        .message .content .hljs-template-variable {
+            color: var(--vscode-charts-red);
+        }
+
+        .message .content .hljs-comment {
+            color: var(--vscode-editorLineNumber-foreground);
+        }
+
+        :host-context(.dragonfu-theme) .message .content .hljs-keyword,
+        :host-context(.dragonfu-theme) .message .content .hljs-title {
+            color: var(--dragonfu-neon-cyan, #00f3ff);
+        }
+
+        :host-context(.dragonfu-theme) .message .content .hljs-string {
+            color: var(--dragonfu-neon-red, #ff0055);
+        }
+
         /* DragonFu specific overrides come from :host-context or global styles */
         :host-context(.dragonfu-theme) .message.assistant {
             border-left: 3px solid var(--dragonfu-neon-cyan);
             box-shadow: 0 0 10px rgba(0, 243, 255, 0.1);
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.3rem 1rem;
+            font-size: 0.7rem;
+            color: var(--vscode-descriptionForeground);
+            background-color: var(--vscode-editor-background);
+            border-bottom: 1px solid var(--vscode-widget-border);
+        }
+
+        .connection-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--vscode-charts-yellow);
+            transition: background-color 0.3s;
+        }
+
+        .connection-dot.connected {
+            background-color: var(--vscode-charts-green);
+        }
+
+        :host-context(.dragonfu-theme) .connection-dot.connected {
+            background-color: var(--dragonfu-neon-green, #00ff88);
+            box-shadow: 0 0 6px var(--dragonfu-neon-green, #00ff88);
+        }
+
+        .connection-text {
+            font-weight: 500;
         }
 
         .input-area {
@@ -255,6 +474,132 @@ export class ChatView extends LitElement {
             background-color: #444;
         }
 
+        .command-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            border: 1px solid var(--vscode-button-border);
+            background-color: var(--vscode-button-secondaryBackground);
+            color: var(--vscode-button-secondaryForeground);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .command-btn:hover:not(:disabled) {
+            background-color: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .command-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .command-btn.explain {
+            border-color: var(--vscode-charts-cyan);
+        }
+
+        .command-btn.fix {
+            border-color: var(--vscode-charts-red);
+        }
+
+        .command-btn.test {
+            border-color: var(--vscode-charts-green);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.explain {
+            background-color: rgba(0, 243, 255, 0.15);
+            color: var(--dragonfu-neon-cyan, #00f3ff);
+            border-color: var(--dragonfu-neon-cyan, #00f3ff);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.fix {
+            background-color: rgba(255, 0, 85, 0.15);
+            color: var(--dragonfu-neon-red, #ff0055);
+            border-color: var(--dragonfu-neon-red, #ff0055);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.test {
+            background-color: rgba(0, 255, 136, 0.15);
+            color: var(--dragonfu-neon-green, #00ff88);
+            border-color: var(--dragonfu-neon-green, #00ff88);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.explain:hover:not(:disabled) {
+            background-color: rgba(0, 243, 255, 0.25);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.fix:hover:not(:disabled) {
+            background-color: rgba(255, 0, 85, 0.25);
+        }
+
+        :host-context(.dragonfu-theme) .command-btn.test:hover:not(:disabled) {
+            background-color: rgba(0, 255, 136, 0.25);
+        }
+
+        .range-dialog {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            min-width: 400px;
+        }
+
+        .range-dialog-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        .range-dialog-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--vscode-editor-foreground);
+        }
+
+        .range-dialog-message {
+            font-size: 0.875rem;
+            margin-bottom: 1rem;
+            color: var(--vscode-descriptionForeground);
+        }
+
+        .range-dialog-inputs {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .range-dialog-input {
+            flex: 1;
+            padding: 0.5rem;
+            background-color: var(--vscode-input-background);
+            border: 1px solid var(--vscode-input-border);
+            border-radius: 4px;
+            color: var(--vscode-input-foreground);
+            font-size: 0.875rem;
+        }
+
+        .range-dialog-buttons {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+
         .drop-zone {
             border: 2px dashed var(--vscode-widget-border);
             border-radius: 4px;
@@ -275,15 +620,27 @@ export class ChatView extends LitElement {
         return html`
             <div class="chat-container">
                 ${this.messages.map(msg => html`
-                    <div class="message ${msg.role}">
-                        <div class="content">${msg.content}</div>
-                    </div>
+                    <chat-message
+                        .message="${msg}"
+                        .showActions="${msg.role === 'assistant' && msg.hasCode && msg.type !== 'explain'}"
+                        @copy-code="${(e: CustomEvent) => this.copyCodeToClipboard(e.detail.content)}"
+                        @show-preview="${(e: CustomEvent) => this.showDiffPreview(e.detail.message)}"
+                    ></chat-message>
                 `)}
                 ${this.isThinking ? html`
                     <div class="message assistant thinking">
                         <vscode-tag>Thinking...</vscode-tag>
                     </div>
                 ` : ''}
+            </div>
+
+            <div class="connection-status">
+                <span class="connection-dot ${this.backendConnected ? 'connected' : ''}" 
+                      title="${this.backendConnected ? (this.backendReused ? 'Connected to existing backend' : 'Backend running') : 'Connecting...'}">
+                </span>
+                <span class="connection-text">
+                    ${this.backendConnected ? (this.backendReused ? 'Existing' : 'New') : 'Connecting'}
+                </span>
             </div>
 
             <div class="input-area">
@@ -299,6 +656,18 @@ export class ChatView extends LitElement {
                     <button class="toggle-btn ${this.includeFullContext ? 'active' : ''}" @click="${this.toggleFullContext}" title="Send full file contents">
                         <span class="toggle-icon">${this.includeFullContext ? '●' : '○'}</span>
                         ${this.includeFullContext ? 'Full' : 'None'}
+                    </button>
+                </div>
+
+                <div class="context-controls">
+                    <button class="command-btn explain" @click="${this.handleExplain}" title="Explain selected code">
+                        💡 Explain
+                    </button>
+                    <button class="command-btn fix" @click="${this.handleFix}" title="Fix errors in selected code">
+                        🔧 Fix
+                    </button>
+                    <button class="command-btn test" @click="${this.handleTest}" title="Generate tests for selected code">
+                        🧪 Test
                     </button>
                 </div>
 
@@ -336,6 +705,26 @@ export class ChatView extends LitElement {
                     </vscode-button>
                 </div>
             </div>
+
+            ${this.showRangeDialog ? html`
+                <div class="range-dialog-overlay" @click="${this.closeRangeDialog}"></div>
+                <div class="range-dialog">
+                    <div class="range-dialog-title">Select Line Range</div>
+                    <div class="range-dialog-message">
+                        The file is too large. Please specify the line range to use for the command.
+                        ${this.rangeDialogFileInfo ? html`<br><br>File: ${this.rangeDialogFileInfo.path}<br>Total lines: ${this.rangeDialogFileInfo.totalLines}` : ''}
+                    </div>
+                    <div class="range-dialog-inputs">
+                        <input type="text" class="range-dialog-input" placeholder="Start line" .value="${this.rangeStart}" @input="${(e: any) => this.rangeStart = e.target.value}" />
+                        <span>to</span>
+                        <input type="text" class="range-dialog-input" placeholder="End line" .value="${this.rangeEnd}" @input="${(e: any) => this.rangeEnd = e.target.value}" />
+                    </div>
+                    <div class="range-dialog-buttons">
+                        <vscode-button appearance="secondary" @click="${this.closeRangeDialog}">Cancel</vscode-button>
+                        <vscode-button appearance="primary" @click="${this.submitRangeDialog}">Apply</vscode-button>
+                    </div>
+                </div>
+            ` : ''}
         `;
     }
 
@@ -355,8 +744,34 @@ export class ChatView extends LitElement {
 
         const content = this.inputValue;
         
-        // Add message with context
-        this.addMessage('user', content, this.contextItems);
+        // Check if it's a slash command
+        const slashCommand = this.parseSlashCommand(content);
+        
+        if (slashCommand) {
+            // For slash commands, we need to get the editor selection first
+            this.pendingSlashCommand = slashCommand;
+            this.waitingForSelection = true;
+            
+            // Ask extension host for current editor selection
+            this.requestEditorSelection();
+            
+            // Don't send yet, wait for selection
+            return;
+        }
+
+        // Normal message flow - include context
+        this.sendMessageWithContent(content, this.contextItems);
+    }
+
+    private sendMessageWithContent(content: string, includeContext: ContextItem[] = []): void {
+        // Detect command type from user message for the response
+        const messageType = detectMessageType(content);
+        if (messageType !== 'general') {
+            this.lastUserCommandType = messageType;
+        }
+        
+        // Add message with context (only for normal messages, not slash commands)
+        this.addMessage('user', content, includeContext);
         this.inputValue = '';
         this.isThinking = true;
 
@@ -368,7 +783,143 @@ export class ChatView extends LitElement {
         this.dispatchMessageToExtension(content, currentContext);
     }
 
+    private sendSlashCommandWithoutContext(content: string): void {
+        // For slash commands, send WITHOUT any context
+        this.addMessage('user', content, []);
+        this.inputValue = '';
+        this.isThinking = true;
+
+        // Store the command type for the assistant's response
+        const slashCmd = this.parseSlashCommand(content);
+        if (slashCmd) {
+            this.lastUserCommandType = slashCmd.command as 'explain' | 'fix' | 'test';
+        }
+
+        // Clear context since we're not using it for slash commands
+        this.contextItems = [];
+
+        // Dispatch event to VS Code extension with empty context
+        this.dispatchMessageToExtension(content, []);
+    }
+
+    private parseSlashCommand(text: string): SlashCommand | null {
+        const trimmed = text.trim();
+        if (trimmed.startsWith('/')) {
+            const parts = trimmed.slice(1).split(/\s+/);
+            const command = parts[0].toLowerCase();
+            const args = parts.slice(1).join(' ');
+            return { command, args: args || undefined };
+        }
+        return null;
+    }
+
+    private requestEditorSelection(): void {
+        // @ts-ignore
+        const vscode = window.vscode;
+        if (vscode) {
+            vscode.postMessage({
+                type: 'editor.getSelection'
+            });
+        }
+    }
+
+    public setEditorSelection(selection: EditorSelection | null): void {
+        if (!this.waitingForSelection || !this.pendingSlashCommand) {
+            return;
+        }
+
+        this.waitingForSelection = false;
+
+        const command = this.pendingSlashCommand;
+        this.pendingSlashCommand = null;
+
+        if (selection && selection.text) {
+            const textLength = selection.text.length;
+            const maxChars = 50000;
+
+            if (textLength > maxChars) {
+                this.showLargeFileDialog(selection, command, textLength, maxChars);
+                return;
+            }
+
+            const prompt = this.buildSlashCommandPrompt(command, selection);
+            this.sendSlashCommandWithoutContext(prompt);
+        } else {
+            this.sendSlashCommandWithoutContext(`/${command.command} ${command.args || ''}`.trim());
+        }
+    }
+
+    private showLargeFileDialog(selection: EditorSelection, command: SlashCommand, textLength: number, maxChars: number): void {
+        this.rangeDialogFileInfo = {
+            path: selection.filePath || 'Unknown file',
+            totalLines: selection.endLine || 0
+        };
+        this.pendingRangeCommand = command;
+        this.rangeStart = String(selection.startLine || 1);
+        this.rangeEnd = String(selection.endLine || '');
+        this.showRangeDialog = true;
+
+        this.addMessage('system', `⚠️ The selected text is too large (${textLength} chars). ${command.command} command requires a smaller selection. Please specify a line range.`);
+    }
+
+    private closeRangeDialog() {
+        this.showRangeDialog = false;
+        this.rangeDialogFileInfo = null;
+        this.rangeStart = '';
+        this.rangeEnd = '';
+        this.pendingRangeCommand = null;
+    }
+
+    private submitRangeDialog() {
+        const startLine = parseInt(this.rangeStart, 10);
+        const endLine = parseInt(this.rangeEnd, 10);
+
+        if (isNaN(startLine) || isNaN(endLine) || startLine > endLine) {
+            this.addMessage('system', '❌ Invalid line range. Please enter valid start and end line numbers.');
+            return;
+        }
+
+        const command = this.pendingRangeCommand;
+        this.closeRangeDialog();
+
+        const prompt = this.buildSlashCommandPrompt(command!, {
+            text: `[Lines ${startLine}-${endLine}]`,
+            filePath: this.rangeDialogFileInfo?.path,
+            startLine,
+            endLine
+        });
+        this.sendSlashCommandWithoutContext(prompt);
+    }
+
+    private buildSlashCommandPrompt(command: SlashCommand, selection: EditorSelection): string {
+        const codeContext = selection.text;
+        
+        switch (command.command) {
+            case 'explain':
+                return `Explica el siguiente código:\n\n\`\`\`\n${codeContext}\n\`\`\``;
+            
+            case 'fix':
+                return `Encuentra y corrige los errores en el siguiente código:\n\n\`\`\`\n${codeContext}\n\`\`\``;
+            
+            case 'test':
+                return `Genera tests unitarios para el siguiente código:\n\n\`\`\`\n${codeContext}\n\`\`\``;
+            
+            default:
+                return `/${command.command} ${command.args || ''}`.trim();
+        }
+    }
+
     private addMessage(role: 'user' | 'assistant', content: string, context?: ContextItem[]) {
+        const parsed = parseMessageForActions(content);
+        
+        // For assistant messages, use the last user command type if available
+        let messageType = detectMessageType(content);
+        if (role === 'assistant' && this.lastUserCommandType) {
+            messageType = this.lastUserCommandType;
+            // Clear after using
+            this.lastUserCommandType = null;
+        }
+        
         this.messages = [
             ...this.messages,
             {
@@ -376,7 +927,10 @@ export class ChatView extends LitElement {
                 role,
                 content,
                 timestamp: Date.now(),
-                context: context
+                context: context,
+                type: messageType,
+                hasCode: parsed.hasCode,
+                hasDiff: parsed.hasDiff
             }
         ];
         this.requestUpdate();
@@ -500,6 +1054,29 @@ export class ChatView extends LitElement {
         this.includeFullContext = !this.includeFullContext;
     }
 
+    private handleExplain() {
+        this.executeSlashCommand('explain');
+    }
+
+    private handleFix() {
+        this.executeSlashCommand('fix');
+    }
+
+    private handleTest() {
+        this.executeSlashCommand('test');
+    }
+
+    private executeSlashCommand(command: string) {
+        const slashCommand: SlashCommand = { command };
+        this.pendingSlashCommand = slashCommand;
+        
+        // Store command type for the response
+        this.lastUserCommandType = command as 'explain' | 'fix' | 'test';
+        
+        this.waitingForSelection = true;
+        this.requestEditorSelection();
+    }
+
     public setCurrentFile(path: string | null, name: string | null) {
         if (path && name) {
             this.currentFile = { path, name };
@@ -564,6 +1141,12 @@ export class ChatView extends LitElement {
                 }
                 break;
                 
+            case 'connection.status':
+                this.backendConnected = event.connected;
+                this.backendReused = event.reused;
+                console.log('[ChatView] Connection status:', event.connected, '(reused:', event.reused, ')');
+                break;
+                
             default:
                 console.log('[ChatView] Unknown event type:', event.type);
         }
@@ -578,10 +1161,49 @@ export class ChatView extends LitElement {
         const lastMsg = this.messages[this.messages.length - 1];
         if (lastMsg && lastMsg.role === 'assistant') {
             lastMsg.content = content;
+            const parsed = parseMessageForActions(content);
+            lastMsg.type = detectMessageType(content);
+            lastMsg.hasCode = parsed.hasCode;
+            lastMsg.hasDiff = parsed.hasDiff;
             this.messages = [...this.messages];
             this.requestUpdate();
         } else {
             this.addMessage('assistant', content);
+        }
+    }
+
+    private async copyCodeToClipboard(content: string): Promise<void> {
+        const codeMatch = content.match(/```(?:\w+)?\n([\s\S]*?)```/);
+        const codeToCopy = codeMatch ? codeMatch[1] : content;
+        
+        try {
+            await navigator.clipboard.writeText(codeToCopy);
+            this.addMessage('system', '✅ Code copied to clipboard!');
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            this.addMessage('system', '❌ Failed to copy code');
+        }
+    }
+
+    private requestApplyDiff(message: ChatMessage): void {
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            vscode.postMessage({
+                type: 'diff.show',
+                content: message.content,
+                messageId: message.id
+            });
+        }
+    }
+
+    private showDiffPreview(message: ChatMessage): void {
+        const vscode = (window as any).vscode;
+        if (vscode) {
+            vscode.postMessage({
+                type: 'diff.show',
+                content: message.content,
+                messageId: message.id
+            });
         }
     }
 }
