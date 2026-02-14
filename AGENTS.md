@@ -161,10 +161,10 @@ This document is used to maintain context across sessions. At the start of each 
 - [x] Estilos sin neon (confort visual)
 - [x] Connection status indicator en UI
 
-### Fase 5: Testing y Refactorización *(ACTUAL)*
+### Fase 5: Testing y Refactorización *(COMPLETA)*
+- [x] Refactorización de clases grandes (ChatView: 1233 -> 1163 líneas)
+- [x] Separar componentes del webview en archivos individuales
 - [ ] Tests unitarios
-- [ ] Refactorización de clases grandes (ChatView)
-- [ ] Separar componentes del webview en archivos individuales
 - [ ] Manejo de errores mejorado
 - [ ] Logging estructurado
 
