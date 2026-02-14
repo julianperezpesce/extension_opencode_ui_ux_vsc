@@ -3,6 +3,7 @@ import { customElement, property, state } from 'lit/decorators.js';
 import { provideVSCodeDesignSystem, vsCodeButton, vsCodeTextArea, vsCodeTag, vsCodeBadge } from '@vscode/webview-ui-toolkit';
 import { renderMarkdown, parseMessageForActions, detectMessageType } from '../utils/markdown-renderer';
 import { ChatMessage } from './chat-message';
+import './chat-input';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
 
@@ -683,27 +684,13 @@ export class ChatView extends LitElement {
                     </div>
                 ` : ''}
 
-                <div class="drop-zone" @dragover="${this.handleDragOver}" @drop="${this.handleDrop}" @dragleave="${this.handleDragLeave}">
-                    Drop files here or type your message
-                </div>
-
-                <vscode-text-area
+                <chat-input
                     placeholder="Ask OpenCode (Try /help, @filename, or drag files)..."
-                    resize="vertical"
-                    rows="3"
-                    .value="${this.inputValue}"
-                    @input="${this.handleInput}"
-                    @keydown="${this.handleKeydown}"
-                ></vscode-text-area>
-
-                <div class="actions">
-                    <vscode-button appearance="secondary" @click="${this.clearChat}">
-                        Clear
-                    </vscode-button>
-                    <vscode-button appearance="primary" @click="${this.sendMessage}">
-                        Send ${this.contextItems.length > 0 ? html`(${this.contextItems.length})` : ''}
-                    </vscode-button>
-                </div>
+                    .contextCount="${this.contextItems.length}"
+                    @send-message="${this.handleSendMessage}"
+                    @clear-chat="${this.handleClearChat}"
+                    @files-dropped="${this.handleFilesDropped}"
+                ></chat-input>
             </div>
 
             ${this.showRangeDialog ? html`
@@ -730,6 +717,22 @@ export class ChatView extends LitElement {
 
     private handleInput(e: any) {
         this.inputValue = e.target.value;
+    }
+
+    private handleSendMessage(e: CustomEvent) {
+        this.inputValue = e.detail.text;
+        this.sendMessage();
+    }
+
+    private handleClearChat() {
+        this.clearChat();
+    }
+
+    private handleFilesDropped(e: CustomEvent) {
+        const files = e.detail.files;
+        files.forEach((file: { path: string; name: string }) => {
+            this.requestAddFileToContext(file.path, file.name);
+        });
     }
 
     private handleKeydown(e: KeyboardEvent) {
@@ -983,37 +986,6 @@ export class ChatView extends LitElement {
 
     public getContextItems(): ContextItem[] {
         return [...this.contextItems];
-    }
-
-    // Drag and drop handlers
-    private handleDragOver(e: DragEvent) {
-        e.preventDefault();
-        e.dataTransfer!.dropEffect = 'copy';
-        const dropZone = this.shadowRoot?.querySelector('.drop-zone');
-        dropZone?.classList.add('drag-over');
-    }
-
-    private handleDragLeave(e: DragEvent) {
-        e.preventDefault();
-        const dropZone = this.shadowRoot?.querySelector('.drop-zone');
-        dropZone?.classList.remove('drag-over');
-    }
-
-    private handleDrop(e: DragEvent) {
-        e.preventDefault();
-        const dropZone = this.shadowRoot?.querySelector('.drop-zone');
-        dropZone?.classList.remove('drag-over');
-
-        // First check for files from file system
-        if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-            Array.from(e.dataTransfer.files).forEach(file => {
-                const filePath = (file as any).path || file.name;
-                const name = file.name;
-
-                // Request the extension to resolve this file path properly
-                this.requestAddFileToContext(filePath, name);
-            });
-        }
     }
 
     private requestAddFileToContext(filePath: string, name: string) {
