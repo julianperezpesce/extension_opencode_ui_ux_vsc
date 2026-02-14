@@ -7,6 +7,7 @@ import './chat-input';
 import './connection-status';
 import './context-bar';
 import './command-buttons';
+import './range-dialog';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
 
@@ -667,25 +668,14 @@ export class ChatView extends LitElement {
                 ></chat-input>
             </div>
 
-            ${this.showRangeDialog ? html`
-                <div class="range-dialog-overlay" @click="${this.closeRangeDialog}"></div>
-                <div class="range-dialog">
-                    <div class="range-dialog-title">Select Line Range</div>
-                    <div class="range-dialog-message">
-                        The file is too large. Please specify the line range to use for the command.
-                        ${this.rangeDialogFileInfo ? html`<br><br>File: ${this.rangeDialogFileInfo.path}<br>Total lines: ${this.rangeDialogFileInfo.totalLines}` : ''}
-                    </div>
-                    <div class="range-dialog-inputs">
-                        <input type="text" class="range-dialog-input" placeholder="Start line" .value="${this.rangeStart}" @input="${(e: any) => this.rangeStart = e.target.value}" />
-                        <span>to</span>
-                        <input type="text" class="range-dialog-input" placeholder="End line" .value="${this.rangeEnd}" @input="${(e: any) => this.rangeEnd = e.target.value}" />
-                    </div>
-                    <div class="range-dialog-buttons">
-                        <vscode-button appearance="secondary" @click="${this.closeRangeDialog}">Cancel</vscode-button>
-                        <vscode-button appearance="primary" @click="${this.submitRangeDialog}">Apply</vscode-button>
-                    </div>
-                </div>
-            ` : ''}
+            <range-dialog
+                .open="${this.showRangeDialog}"
+                .filePath="${this.rangeDialogFileInfo?.path || ''}"
+                .totalLines="${this.rangeDialogFileInfo?.totalLines || 0}"
+                @apply="${this.handleRangeApply}"
+                @cancel="${this.closeRangeDialog}"
+                @error="${(e: CustomEvent) => this.addMessage('system', '❌ ' + e.detail.message)}"
+            ></range-dialog>
         `;
     }
 
@@ -845,6 +835,20 @@ export class ChatView extends LitElement {
         this.rangeStart = '';
         this.rangeEnd = '';
         this.pendingRangeCommand = null;
+    }
+
+    private handleRangeApply(e: CustomEvent) {
+        const { startLine, endLine } = e.detail;
+        const command = this.pendingRangeCommand;
+        this.closeRangeDialog();
+
+        const prompt = this.buildSlashCommandPrompt(command!, {
+            text: `[Lines ${startLine}-${endLine}]`,
+            filePath: this.rangeDialogFileInfo?.path,
+            startLine,
+            endLine
+        });
+        this.sendSlashCommandWithoutContext(prompt);
     }
 
     private submitRangeDialog() {
