@@ -5,6 +5,7 @@ import { renderMarkdown, parseMessageForActions, detectMessageType } from '../ut
 import { ChatMessage } from './chat-message';
 import './chat-input';
 import './connection-status';
+import './context-bar';
 
 provideVSCodeDesignSystem().register(vsCodeButton(), vsCodeTextArea(), vsCodeTag(), vsCodeBadge());
 
@@ -642,20 +643,15 @@ export class ChatView extends LitElement {
             ></connection-status>
 
             <div class="input-area">
-                <div class="context-controls">
-                    ${this.currentFile ? html`
-                        <button class="add-file-btn" @click="${this.addCurrentFileToContext}" title="Add current file to context">
-                            📄 + ${this.currentFile.name}
-                        </button>
-                    ` : ''}
-                    <button class="add-file-btn" @click="${this.requestFileSelection}" title="Select file to add">
-                        📁 Browse...
-                    </button>
-                    <button class="toggle-btn ${this.includeFullContext ? 'active' : ''}" @click="${this.toggleFullContext}" title="Send full file contents">
-                        <span class="toggle-icon">${this.includeFullContext ? '●' : '○'}</span>
-                        ${this.includeFullContext ? 'Full' : 'None'}
-                    </button>
-                </div>
+                <context-bar
+                    .items="${this.contextItems}"
+                    .currentFile="${this.currentFile}"
+                    .includeFullContext="${this.includeFullContext}"
+                    @add-current-file="${this.addCurrentFileToContext}"
+                    @browse-files="${this.requestFileSelection}"
+                    @toggle-full-context="${this.toggleFullContext}"
+                    @remove-item="${(e: CustomEvent) => this.removeContextItem(e.detail.id)}"
+                ></context-bar>
 
                 <div class="context-controls">
                     <button class="command-btn explain" @click="${this.handleExplain}" title="Explain selected code">
@@ -668,18 +664,6 @@ export class ChatView extends LitElement {
                         🧪 Test
                     </button>
                 </div>
-
-                ${this.contextItems.length > 0 ? html`
-                    <div class="context-area">
-                        ${this.contextItems.map(item => html`
-                            <div class="context-badge ${item.type}" title="${item.path}${item.lineStart ? `:${item.lineStart}${item.lineEnd ? `-${item.lineEnd}` : ''}` : ''}">
-                                ${item.type === 'file' ? '📄' : item.type === 'folder' ? '📁' : '📜'}
-                                <span>${item.name}${item.lineStart ? `:${item.lineStart}${item.lineEnd ? `-${item.lineEnd}` : ''}` : ''}</span>
-                                <span class="remove-btn" @click="${() => this.removeContextItem(item.id)}">×</span>
-                            </div>
-                        `)}
-                    </div>
-                ` : ''}
 
                 <chat-input
                     placeholder="Ask OpenCode (Try /help, @filename, or drag files)..."
