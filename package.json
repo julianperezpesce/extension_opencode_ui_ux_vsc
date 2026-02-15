@@ -192,6 +192,9 @@
     "lint": "eslint src --ext ts",
     "test": "vscode-test",
     "test:script": "./scripts/test.sh",
+    "test:slash": "vscode-test --grep 'Slash Commands'",
+    "test:unit": "vscode-test --grep 'unit'",
+    "test:watch": "tsc -watch -p ./ & vscode-test --watch",
     "package": "npm run build:webview && npm run compile:production && npx @vscode/vsce package --no-dependencies",
     "package:dev": "cd ../ && ./scripts/build-vscode.sh --skip-tests",
     "package:pre-release": "pnpm run compile:production && vsce package --pre-release --no-dependencies",
@@ -226,6 +229,8 @@
   "packageManager": "pnpm@9.0.0+sha512.b4106707c7225b1748b61595953ccbebff97b54ad05d002aa3635f633b9c53cd666f7ce9b8bc44704f1fa048b9a49b55371ab2d9e9d667d1efe2ef1514bcd513",
   "dependencies": {
     "@vscode/webview-ui-toolkit": "^1.4.0",
-    "lit": "^3.3.2"
+    "highlight.js": "^11.11.1",
+    "lit": "^3.3.2",
+    "marked": "^17.0.2"
   }
 }

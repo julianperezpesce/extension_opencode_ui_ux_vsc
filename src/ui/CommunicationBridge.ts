@@ -181,6 +181,17 @@ export class CommunicationBridge implements PluginCommunicator {
   }
 
   /**
+   * Send diff show request to webview
+   */
+  sendDiffShow(content: string, messageId?: string): void {
+    this.sendMessage({
+      type: "diff.show",
+      content,
+      messageId,
+    })
+  }
+
+  /**
    * Send directory path to the web UI for pasting
    * Mirrors PathInserter.kt pastePath functionality
    * @param path Directory path to paste
@@ -497,8 +508,7 @@ export class CommunicationBridge implements PluginCommunicator {
 
     this.messageHandlerDisposable = this.webview.onDidReceiveMessage(
       async (message) => {
-        console.log('[CommunicationBridge] Raw message received:', JSON.stringify(message));
-        logger.appendLine(`[CommunicationBridge] Raw message received: ${JSON.stringify(message)}`);
+        logger.appendLine(`[CommunicationBridge] Received: ${message.type}`);
         try {
           switch (message.type) {
             case "openFile":
@@ -548,18 +558,16 @@ export class CommunicationBridge implements PluginCommunicator {
               break
 
             case "chat.send":
-              console.log('[CommunicationBridge] Chat send case matched');
-              logger.appendLine(`[CommunicationBridge] Chat send case matched`);
+              logger.appendLine(`[CommunicationBridge] Chat send request: ${message.text?.substring(0, 50)}...`);
               if (typeof message.text === "string") {
                 const context = message.context;
                 const options = message.options;
-                logger.appendLine(`Chat send request: ${message.text.substring(0, 50)}... with ${context?.length || 0} context items`)
                 if (this.onChatSendCallback) {
-                  console.log('[CommunicationBridge] Executing callback with context');
-                  await this.onChatSendCallback(message.text, context, options)
-                } else {
-                  console.log('[CommunicationBridge] No callback registered!');
-                  logger.appendLine(`[CommunicationBridge] No callback registered!`);
+                  try {
+                    await this.onChatSendCallback(message.text, context, options)
+                  } catch (callbackError) {
+                    logger.appendLine(`[CommunicationBridge] Callback error: ${callbackError}`);
+                  }
                 }
               }
               break
@@ -619,39 +627,64 @@ export class CommunicationBridge implements PluginCommunicator {
               }
               break
 
-            case "executeCommand":
+            case "editor.getSelection":
               try {
-                const command: unknown = message.command
-                const args: unknown[] = Array.isArray(message.args) ? message.args : []
-                if (typeof command !== "string" || command.trim() === "") {
-                  logger.appendLine("Invalid executeCommand message: missing command")
-                  break
+                const editor = vscode.window.activeTextEditor
+                if (editor) {
+                  const selection = editor.selection
+                  const selectedText = editor.document.getText(selection)
+                  const filePath = editor.document.uri.fsPath
+                  const startLine = selection.start.line + 1
+                  const endLine = selection.end.line + 1
+
+                  logger.appendLine(`[CommunicationBridge] Editor selection: ${selectedText.substring(0, 50)}...`)
+
+                  this.sendMessage({
+                    type: 'editor.selection',
+                    selection: {
+                      text: selectedText,
+                      filePath: filePath,
+                      startLine: startLine,
+                      endLine: endLine
+                    },
+                    timestamp: Date.now()
+                  })
+                } else {
+                  logger.appendLine('[CommunicationBridge] No active editor for selection')
+                  this.sendMessage({
+                    type: 'editor.selection',
+                    selection: null,
+                    timestamp: Date.now()
+                  })
                 }
-                // Whitelist allowed commands for safety
-                const allowed = new Set<string>([
-                  "workbench.action.showCommands",
-                  "workbench.action.quickOpen",
-                  "workbench.action.files.save",
-                  "editor.action.selectAll",
-                  "workbench.action.files.newUntitledFile",
-                  "actions.find",
-                  "undo",
-                  "redo",
-                  // Clipboard actions for macOS handling
-                  "editor.action.clipboardCopyAction",
-                  "editor.action.clipboardCutAction",
-                  "editor.action.clipboardPasteAction",
-                ])
-                const cmd = command as string // safe after type guard above
-                if (!allowed.has(cmd)) {
-                  logger.appendLine(`Blocked executeCommand for non-whitelisted command: ${cmd}`)
-                  break
-                }
-                await vscode.commands.executeCommand(cmd, ...args)
-                logger.appendLine(`Executed command from webview: ${cmd}`)
               } catch (e) {
-                logger.appendLine(`Failed to execute command from webview: ${e}`)
+                logger.appendLine(`Failed to get editor selection: ${e}`)
+                this.sendMessage({
+                  type: 'editor.selection',
+                  selection: null,
+                  timestamp: Date.now()
+                })
               }
+              break
+
+            case "diff.show":
+              logger.appendLine(`[CommunicationBridge] Diff show requested`);
+              // Forward to webview to show diff preview
+              this.sendMessage({
+                type: 'diff.show',
+                content: message.content,
+                messageId: message.messageId
+              });
+              break
+
+            case "diff.applyCode":
+              logger.appendLine(`[CommunicationBridge] Diff apply requested for: ${message.fileName}`);
+              // Handle applying code changes to a file
+              // This would need to be implemented to actually write to a file
+              // For now, show a message that this feature is not yet implemented
+              vscode.window.showInformationMessage(
+                `Apply changes to ${message.fileName}? (Feature coming soon)`
+              );
               break
 
             default:

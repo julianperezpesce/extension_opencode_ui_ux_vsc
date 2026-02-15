@@ -31,6 +31,16 @@ export interface UpdateCurrentFileMessage extends BaseMessage {
   name: string
 }
 
+export interface EditorSelectionMessage extends BaseMessage {
+  type: "editor.selection"
+  selection: {
+    text: string
+    filePath?: string
+    startLine?: number
+    endLine?: number
+  } | null
+}
+
 export interface ChatReceiveMessage extends BaseMessage {
   type: "chat.receive"
   text: string
@@ -40,6 +50,12 @@ export interface ChatReceiveMessage extends BaseMessage {
 export interface ChatStreamingMessage extends BaseMessage {
   type: "chat.streaming"
   text: string
+}
+
+export interface DiffShowMessage extends BaseMessage {
+  type: "diff.show"
+  content: string
+  messageId?: string
 }
 
 export interface ErrorMessage extends BaseMessage {
@@ -53,8 +69,10 @@ export type UnifiedMessage =
   | PastePathMessage
   | UpdateOpenedFilesMessage
   | UpdateCurrentFileMessage
+  | EditorSelectionMessage
   | ChatReceiveMessage
   | ChatStreamingMessage
+  | DiffShowMessage
   | ErrorMessage
 
 /**
@@ -65,4 +83,5 @@ export interface PluginCommunicator {
   insertPaths(paths: string[]): void
   pastePath(path: string): void
   updateOpenedFiles(files: string[], current?: string): void
+  sendDiffShow(content: string, messageId?: string): void
 }

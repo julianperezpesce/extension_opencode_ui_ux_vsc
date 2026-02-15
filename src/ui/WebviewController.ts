@@ -64,8 +64,10 @@ export class WebviewController {
       })
 
       this.communicationBridge.setChatSendCallback(async (text: string, context?: any[], options?: any) => {
+        console.log('[WebviewController] ChatSendCallback invoked with:', text.substring(0, 50));
         await this.handleChatSend(text, context, options)
       })
+      console.log('[WebviewController] ChatSendCallback SET successfully');
 
       // Make PathInserter aware of the active communication bridge
       // NOTE: PathInserter is now set by container visibility (editor panel / sidebar).
@@ -185,6 +187,15 @@ export class WebviewController {
 
       // Message handling is now done entirely by CommunicationBridge
 
+      // Send connection status to webview
+      this.webview.postMessage({
+        type: 'connection.status',
+        connected: true,
+        reused: connection.reused || false,
+        port: connection.port,
+      })
+      logger.appendLine(`[WebviewController] Sent connection status to webview: reused=${connection.reused}`)
+
     } catch (error) {
       await errorHandler.handleWebviewLoadError(error instanceof Error ? error : new Error(String(error)), {
         connection,
@@ -201,10 +212,14 @@ export class WebviewController {
 
     // Try to get existing sessions first
     logger.appendLine('[WebviewController] Fetching existing sessions...');
+    console.log('[WebviewController] Fetching existing sessions from:', `${baseUrl}/session`);
     const sessionsResponse = await fetch(`${baseUrl}/session`)
+    console.log('[WebviewController] Sessions response status:', sessionsResponse.status);
     
     if (sessionsResponse.ok) {
-      const sessions = await sessionsResponse.json() as Array<{id: string}>
+      const sessions = await sessionsResponse.json() as Array<{id: string}>;
+      console.log('[WebviewController] Sessions:', sessions);
+      
       if (sessions && sessions.length > 0) {
         logger.appendLine(`[WebviewController] Found existing session: ${sessions[0].id}`)
         return sessions[0].id
@@ -212,25 +227,31 @@ export class WebviewController {
     }
 
     // Create a new session if none exists
-    logger.appendLine('[WebviewController] Creating new session...');
+    console.log('[WebviewController] Creating new session...');
     const createResponse = await fetch(`${baseUrl}/session`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "VS Code Chat" }),
     })
 
+    console.log('[WebviewController] Create session response:', createResponse.status, createResponse.statusText);
+
     if (!createResponse.ok) {
       throw new Error(`Failed to create session: ${createResponse.status}`)
     }
 
     const newSession = await createResponse.json() as {id: string}
+    console.log('[WebviewController] New session created:', newSession);
     logger.appendLine(`[WebviewController] Created new session: ${newSession.id}`)
     return newSession.id
   }
 
   private async handleChatSend(text: string, context?: any[], options?: any): Promise<void> {
+    console.log('[WebviewController] handleChatSend called with:', text.substring(0, 50));
+    console.log('[WebviewController] Connection available:', !!this.connection);
+    console.log('[WebviewController] Connection details:', this.connection);
     try {
-      logger.appendLine(`[WebviewController] handleChatSend: ${text.substring(0, 50)}... with ${context?.length || 0} context items`)
+      logger.appendLine(`[WebviewController] handleChatSend: ${text.substring(0, 50)}...`)
       
       if (!this.connection) {
         throw new Error("No backend connection available")
@@ -240,12 +261,17 @@ export class WebviewController {
       const uiBaseUrl = new URL(this.connection.uiBase)
       const baseUrl = uiBaseUrl.origin
 
+      console.log('[WebviewController] baseUrl:', baseUrl);
+
       // Get or create a session
       if (!this.sessionId) {
+        console.log('[WebviewController] Creating new session...');
         this.sessionId = await this.getOrCreateSession()
+        console.log('[WebviewController] Session created:', this.sessionId);
       }
 
       const apiUrl = `${baseUrl}/session/${this.sessionId}/prompt_async`
+      console.log('[WebviewController] API URL:', apiUrl);
       
       // Build parts array with text and context
       const parts: any[] = [{ type: "text", text }]
@@ -319,6 +345,9 @@ export class WebviewController {
         }
       }
       
+      console.log('[WebviewController] Sending POST to:', apiUrl);
+      console.log('[WebviewController] Parts:', JSON.stringify(parts).substring(0, 200));
+      
       // Send message using the session API
       const response = await fetch(apiUrl, {
         method: "POST",
@@ -327,6 +356,8 @@ export class WebviewController {
         },
         body: JSON.stringify({ parts }),
       })
+
+      console.log('[WebviewController] Response status:', response.status, response.statusText);
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status} ${response.statusText}`)
@@ -457,10 +488,12 @@ export class WebviewController {
     const uiBaseUrl = new URL(this.connection.uiBase);
     const eventUrl = `${uiBaseUrl.origin}/event`;
     
+    console.log('[WebviewController] Connecting to event stream:', eventUrl);
     logger.appendLine(`[WebviewController] Connecting to event stream: ${eventUrl}`);
     
     try {
       this.eventStreamRequest = http.get(eventUrl, (res) => {
+        console.log('[WebviewController] Event stream response status:', res.statusCode);
         logger.appendLine(`[WebviewController] Event stream connected (status: ${res.statusCode})`);
         
         if (res.statusCode !== 200) {
@@ -468,10 +501,13 @@ export class WebviewController {
             return;
         }
 
+        console.log('[WebviewController] Event stream connected, listening for events...');
         let buffer = '';
         
         res.on('data', (chunk) => {
-          buffer += chunk.toString();
+          const chunkStr = chunk.toString();
+          console.log('[WebviewController] Event stream data chunk:', chunkStr.substring(0, 200));
+          buffer += chunkStr;
           const lines = buffer.split('\n');
           // Keep the last partial line in the buffer
           buffer = lines.pop() || '';
@@ -479,11 +515,13 @@ export class WebviewController {
           for (const line of lines) {
             if (line.trim().startsWith('data: ')) {
               const data = line.trim().slice(6);
+              console.log('[WebviewController] Event data:', data);
               // Skip keep-alive messages or empty data
               if (!data || data === '{}') continue;
               
               try {
                 const eventData = JSON.parse(data);
+                console.log('[WebviewController] Parsed event:', JSON.stringify(eventData).substring(0, 200));
                 this.handleServerEvent(eventData);
               } catch (err) {
                 logger.appendLine(`[WebviewController] Error parsing event: ${err}`);
@@ -493,12 +531,14 @@ export class WebviewController {
         });
 
         res.on('end', () => {
+          console.log('[WebviewController] Event stream ended');
           logger.appendLine('[WebviewController] Event stream ended by server');
           this.eventStreamRequest = undefined;
         });
       });
 
       this.eventStreamRequest.on('error', (err) => {
+        console.log('[WebviewController] Event stream error:', err.message);
         logger.appendLine(`[WebviewController] Event stream error: ${err.message}`);
         vscode.window.showErrorMessage(`OpenCode event stream error: ${err.message}`);
         this.eventStreamRequest = undefined;
@@ -548,11 +588,10 @@ export class WebviewController {
         const part = event.properties?.part;
         const delta = event.properties?.delta;
         
-        // Priority to delta (incremental update), then full text if available
-        const textContent = delta?.text || part?.text || (typeof part === 'string' ? part : null);
+        // delta can be a string directly OR an object with text property
+        const textContent = (typeof delta === 'string' ? delta : delta?.text) || part?.text || (typeof part === 'string' ? part : null);
 
         if (textContent) {
-          logger.appendLine(`[WebviewController] Sending streaming text: ${textContent.substring(0, 100)}...`);
           this.communicationBridge.sendMessage({
             type: 'chat.streaming',
             text: textContent

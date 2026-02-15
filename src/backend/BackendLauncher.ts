@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from "child_process"
 import * as vscode from "vscode"
 import * as path from "path"
 import * as os from "os"
+import * as http from "http"
 import { ResourceExtractor } from "./ResourceExtractor"
 import { ErrorCategory, errorHandler, ErrorSeverity } from "../utils/ErrorHandler"
 import { logger } from "../globals"
@@ -14,13 +15,158 @@ import { logger } from "../globals"
 export interface BackendConnection {
   port: number
   uiBase: string
-  process: ChildProcess
+  process?: ChildProcess
   binaryPath: string
+  reused: boolean
 }
 
 export class BackendLauncher {
   private currentProcess?: ChildProcess
   private currentConnection?: Omit<BackendConnection, "process">
+  private lastUsedPort?: number
+
+  /**
+   * Try to find an existing OpenCode backend that's already running
+   * @returns Connection info if found, null otherwise
+   */
+  private async findExistingBackend(): Promise<{ port: number; uiBase: string } | null> {
+    // Priority ports to check - these are the most common ports for opencode
+    const priorityPorts = [
+      4096,      // Default for opencode web
+      60189,     // Common alternative
+      43665,     // Another common port
+      40499,     // Alternative port
+    ]
+    
+    // Add lastUsedPort if it's different from the above
+    if (this.lastUsedPort && !priorityPorts.includes(this.lastUsedPort)) {
+      priorityPorts.unshift(this.lastUsedPort)
+    }
+    
+    console.log('[BackendLauncher] Searching for existing backend on ports:', priorityPorts.join(', '))
+    logger.appendLine(`[BackendLauncher] Searching for existing backend on ports: ${priorityPorts.join(", ")}`)
+
+    for (const port of priorityPorts) {
+      try {
+        console.log('[BackendLauncher] Trying port:', port);
+        const result = await this.tryConnectToPort(port)
+        if (result) {
+          logger.appendLine(`[BackendLauncher] Found existing backend on port ${port}`)
+          this.lastUsedPort = port
+          return result
+        }
+      } catch {
+        // Port not available, try next one
+        continue
+      }
+    }
+
+    // Try to find by checking processes
+    const processPort = await this.findBackendByProcess()
+    if (processPort) {
+      logger.appendLine(`[BackendLauncher] Found backend by process on port ${processPort}`)
+      this.lastUsedPort = processPort
+      return {
+        port: processPort,
+        uiBase: `http://127.0.0.1:${processPort}/app`,
+      }
+    }
+
+    logger.appendLine(`[BackendLauncher] No existing backend found`)
+    return null
+  }
+
+  /**
+   * Try to connect to a specific port to see if a backend is running
+   */
+  private tryConnectToPort(port: number): Promise<{ port: number; uiBase: string } | null> {
+    return new Promise((resolve) => {
+      const req = http.get(`http://127.0.0.1:${port}/session`, (res) => {
+        if (res.statusCode === 200) {
+          resolve({
+            port,
+            uiBase: `http://127.0.0.1:${port}/app`,
+          })
+        } else {
+          resolve(null)
+        }
+      })
+
+      req.on("error", () => {
+        resolve(null)
+      })
+
+      req.setTimeout(1000, () => {
+        req.destroy()
+        resolve(null)
+      })
+    })
+  }
+
+  /**
+   * Find backend by checking running processes
+   */
+  private async findBackendByProcess(): Promise<number | null> {
+    return new Promise((resolve) => {
+      try {
+        // First try to find ports using lsof for any opencode processes
+        const { execSync } = require("child_process")
+        
+        // Get listening ports from opencode processes
+        const lsofOutput = execSync("lsof -i -P -n 2>/dev/null | grep opencode | grep LISTEN | awk '{print $9, $10}' | head -20", {
+          encoding: "utf-8",
+          timeout: 5000,
+        })
+        
+        console.log('[BackendLauncher] lsof output:', lsofOutput);
+        
+        // Parse output like: "TCP *:4096 (LISTEN)" or "TCP 127.0.0.1:4096->..."
+        const portRegex = /(?:127\.0\.0\.1|\*):(\d+)|:(\d+)\s+\(LISTEN\)/g
+        const ports = new Set<number>()
+        let match
+        while ((match = portRegex.exec(lsofOutput)) !== null) {
+          const port = parseInt(match[1] || match[2], 10)
+          if (port > 1000 && port < 65535) {
+            ports.add(port)
+          }
+        }
+        
+        // Test each found port to see which one responds to /session
+        if (ports.size > 0) {
+          console.log('[BackendLauncher] Found ports from lsof:', Array.from(ports));
+        }
+        
+        // Also check for opencode processes (excluding 'web')
+        const psOutput = execSync("ps aux | grep opencode | grep -v grep | grep -v web", {
+          encoding: "utf-8",
+          timeout: 5000,
+        })
+        
+        // Try to extract port from command line args
+        const portMatch = psOutput.match(/(?:--port\s+|serve\s+|-p\s+)(\d+)/i)
+        if (portMatch && portMatch[1]) {
+          const port = parseInt(portMatch[1], 10)
+          if (port > 1000) {
+            console.log('[BackendLauncher] Found port from ps:', port);
+            resolve(port)
+            return
+          }
+        }
+        
+        // If we found ports from lsof, try them in order
+        for (const port of ports) {
+          console.log('[BackendLauncher] Testing lsof port:', port);
+          resolve(port)
+          return
+        }
+        
+        resolve(null)
+      } catch (e) {
+        console.log('[BackendLauncher] findBackendByProcess error:', e);
+        resolve(null)
+      }
+    })
+  }
 
   /**
    * Launch the opencode backend process
@@ -28,9 +174,26 @@ export class BackendLauncher {
    * @returns Promise resolving to backend connection info
    */
   async launchBackend(workspaceRoot?: string, options?: { forceNew?: boolean }): Promise<BackendConnection> {
+    console.log('[BackendLauncher] launchBackend called, forceNew:', options?.forceNew);
+    // Try to reuse existing backend first (unless forceNew is specified)
+    if (!options?.forceNew) {
+      console.log('[BackendLauncher] Attempting to find existing backend...');
+      const existing = await this.findExistingBackend()
+      console.log('[BackendLauncher] findExistingBackend result:', existing);
+      if (existing) {
+        logger.appendLine(`[BackendLauncher] Reusing existing backend on port ${existing.port}`)
+        return {
+          ...existing,
+          binaryPath: "reused",
+          process: undefined,
+          reused: true,
+        }
+      }
+    }
+
     // Reuse existing running backend if available
     if (!options?.forceNew && this.currentProcess && this.currentConnection && this.isRunning()) {
-      return { ...this.currentConnection, process: this.currentProcess } as BackendConnection
+      return { ...this.currentConnection, process: this.currentProcess, reused: false } as BackendConnection
     }
 
     try {
@@ -57,7 +220,7 @@ export class BackendLauncher {
         logger.appendLine(`Additional backend started successfully on port ${connection.port}`)
 
         // Do NOT update currentProcess/currentConnection for additional backend
-        return { ...connection, process: childProcess, binaryPath }
+        return { ...connection, process: childProcess, binaryPath, reused: false }
       }
 
       // For shared backend: terminate any existing and start new
@@ -80,12 +243,14 @@ export class BackendLauncher {
       logger.appendLine(`Backend started successfully on port ${connection.port}`)
 
       // Cache current connection (shared)
-      this.currentConnection = { ...connection, binaryPath }
+      this.currentConnection = { ...connection, binaryPath, reused: false }
+      this.lastUsedPort = connection.port
 
       return {
         ...connection,
         process: childProcess,
-        binaryPath
+        binaryPath,
+        reused: false
       }
     } catch (error) {
       logger.appendLine(`Failed to launch backend: ${error}`)
@@ -150,12 +315,14 @@ export class BackendLauncher {
       logger.appendLine(`Fallback backend started successfully on port ${connection.port}`)
 
       // Cache current connection
-      this.currentConnection = { ...connection, binaryPath }
+      this.currentConnection = { ...connection, binaryPath, reused: false }
+      this.lastUsedPort = connection.port
 
       return {
         ...connection,
         process: childProcess,
-        binaryPath
+        binaryPath,
+        reused: false
       }
     } catch (fallbackError) {
       logger.appendLine(`Fallback backend launch also failed: ${fallbackError}`)

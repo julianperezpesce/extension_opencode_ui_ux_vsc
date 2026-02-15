@@ -102,23 +102,6 @@ export class ChatView extends LitElement {
             gap: 1rem;
         }
 
-        chat-message {
-            display: block;
-            width: 100%;
-        }
-
-        chat-message[role="user"] {
-            align-self: flex-end;
-        }
-
-        chat-message[role="assistant"] {
-            align-self: flex-start;
-        }
-
-        chat-message[role="system"] {
-            align-self: center;
-        }
-
         .message {
             max-width: 85%;
             padding: 0.8rem;

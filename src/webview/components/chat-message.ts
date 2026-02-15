@@ -37,6 +37,21 @@ export class ChatMessageElement extends LitElement {
     static styles = css`
         :host {
             display: block;
+            max-width: 85%;
+        }
+
+        :host([role="user"]) {
+            margin-left: auto;
+        }
+
+        :host([role="assistant"]) {
+            margin-right: auto;
+        }
+
+        :host([role="system"]) {
+            margin-left: auto;
+            margin-right: auto;
+            max-width: 70%;
         }
 
         .message {
