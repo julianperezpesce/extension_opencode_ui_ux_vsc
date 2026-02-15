@@ -678,13 +678,43 @@ export class CommunicationBridge implements PluginCommunicator {
               break
 
             case "diff.applyCode":
-              logger.appendLine(`[CommunicationBridge] Diff apply requested for: ${message.fileName}`);
-              // Handle applying code changes to a file
-              // This would need to be implemented to actually write to a file
-              // For now, show a message that this feature is not yet implemented
-              vscode.window.showInformationMessage(
-                `Apply changes to ${message.fileName}? (Feature coming soon)`
-              );
+              logger.appendLine(`[CommunicationBridge] Diff apply requested for: ${message.fileName}, path: ${message.filePath}`);
+              
+              if (!message.filePath) {
+                vscode.window.showErrorMessage("No file path available. Cannot apply changes.");
+                break;
+              }
+
+              try {
+                const fileUri = vscode.Uri.file(message.filePath);
+                
+                // Check if file exists
+                const fileExists = await vscode.workspace.fs.stat(fileUri).then(
+                  () => true,
+                  () => false
+                );
+
+                if (!fileExists) {
+                  vscode.window.showErrorMessage(`File not found: ${message.filePath}`);
+                  break;
+                }
+
+                // Show confirmation dialog
+                const selected = await vscode.window.showInformationMessage(
+                  `Apply changes to ${message.fileName}?`,
+                  "Apply",
+                  "Cancel"
+                );
+
+                if (selected === "Apply") {
+                  await vscode.workspace.fs.writeFile(fileUri, Buffer.from(message.code, "utf-8"));
+                  logger.appendLine(`[CommunicationBridge] File written successfully: ${message.filePath}`);
+                  vscode.window.showInformationMessage(`Changes applied to ${message.fileName}`);
+                }
+              } catch (err) {
+                logger.appendLine(`[CommunicationBridge] Error applying diff: ${err}`);
+                vscode.window.showErrorMessage(`Error applying changes: ${err}`);
+              }
               break
 
             default:

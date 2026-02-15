@@ -1,11 +1,12 @@
 export interface DiffManager {
-    show(content: string): void;
+    show(content: string, filePath?: string | null, fileName?: string): void;
     hide(): void;
     isVisible(): boolean;
 }
 
 let diffPreview: any = null;
 let chatView: any = null;
+let currentFilePath: string | null = null;
 
 export function createDiffManager(): DiffManager {
     function getDiffPreview() {
@@ -23,12 +24,14 @@ export function createDiffManager(): DiffManager {
     }
 
     return {
-        show(content: string) {
+        show(content: string, filePath?: string | null, fileName?: string) {
             const codeMatch = content.match(/```(?:\w+)?\n([\s\S]*?)```/);
             const code = codeMatch ? codeMatch[1] : content;
             
+            currentFilePath = filePath || null;
+            
             const preview = getDiffPreview();
-            preview.setDiff(code, code, 'preview.ts');
+            preview.setDiff(code, code, fileName || 'preview.ts', filePath || '');
             
             if (!document.body.contains(preview)) {
                 document.body.appendChild(preview);

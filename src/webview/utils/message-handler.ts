@@ -48,7 +48,7 @@ export function createMessageHandler(config: MessageHandlerConfig = {}) {
                 break;
 
             case 'diff.show':
-                getDiffManager().show(message.content);
+                getDiffManager().show(message.content, message.filePath, message.fileName);
                 break;
 
             case 'diff.close':
@@ -61,7 +61,8 @@ export function createMessageHandler(config: MessageHandlerConfig = {}) {
                     vscode.postMessage({
                         type: 'diff.applyCode',
                         code: message.code,
-                        fileName: message.fileName
+                        fileName: message.fileName,
+                        filePath: message.filePath
                     });
                 }
                 getDiffManager().hide();

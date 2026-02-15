@@ -22,6 +22,9 @@ export class DiffPreview extends LitElement {
     @property({ type: String })
     fileName = 'preview.ts';
 
+    @property({ type: String })
+    filePath = '';
+
     @state()
     private viewMode: 'split' | 'unified' = 'unified';
 
@@ -343,7 +346,7 @@ export class DiffPreview extends LitElement {
     private handleApply() {
         // Dispatch event for main.ts to handle
         window.dispatchEvent(new CustomEvent('message', {
-            detail: { type: 'diff.applyCode', code: this.fixedCode, fileName: this.fileName }
+            detail: { type: 'diff.applyCode', code: this.fixedCode, fileName: this.fileName, filePath: this.filePath }
         }));
         this.close();
     }
@@ -369,10 +372,11 @@ export class DiffPreview extends LitElement {
         }
     }
 
-    public setDiff(original: string, fixed: string, fileName: string) {
+    public setDiff(original: string, fixed: string, fileName: string, filePath: string = '') {
         this.originalCode = original;
         this.fixedCode = fixed;
         this.fileName = fileName;
+        this.filePath = filePath;
     }
 }
 

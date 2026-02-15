@@ -1153,11 +1153,16 @@ export class ChatView extends LitElement {
 
     private showDiffPreview(message: ChatMessage): void {
         const vscode = (window as any).vscode;
+        
+        const firstFile = message.context?.find(c => c.type === 'file');
+        
         if (vscode) {
             vscode.postMessage({
                 type: 'diff.show',
                 content: message.content,
-                messageId: message.id
+                messageId: message.id,
+                filePath: firstFile?.path || null,
+                fileName: firstFile?.name || 'unknown'
             });
         }
     }

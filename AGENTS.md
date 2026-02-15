@@ -6,6 +6,52 @@ This document provides essential information for AI agents operating in the `ext
 
 **OpenCode DragonFu** is a Visual Studio Code extension that integrates the OpenCode CLI with a custom "DragonFu" UI theme. It features a webview-based interface for chat and interaction with the OpenCode backend.
 
+## 1.1 Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "VSCode Extension (Backend)"
+        A["extension.ts<br/>Entry Point"] --> B["OpenCodeExtension<br/>Coordinator"]
+        B --> C["WebviewManager<br/>Panel Lifecycle"]
+        B --> D["BackendLauncher<br/>Process Manager"]
+        B --> E["SettingsManager<br/>Configuration"]
+        B --> F["ActivityBarProvider<br/>View Provider"]
+    end
+
+    subgraph "Communication Layer"
+        C <--> G["CommunicationBridge<br/>Message Bridge"]
+        G <--> H["IdeBridgeServer<br/>SSE Server"]
+        G <--> I["WebviewController<br/>Shared Controller"]
+    end
+
+    subgraph "OpenCode Backend"
+        D --> J["opencode serve<br/>Backend Process"]
+        J --> K["Port 4096+<br/>API Server"]
+    end
+
+    subgraph "Webview (Frontend)"
+        I --> L["webview/main.ts<br/>Entry"]
+        L --> M["chat-view<br/>Chat UI"]
+        L --> N["diff-preview<br/>Diff Viewer"]
+        M --> O["message-handler<br/>Message Parser"]
+        O --> P["markdown-renderer<br/>Renderer"]
+    end
+
+    style A fill:#e1f5fe
+    style J fill:#e8f5e9
+    style M fill:#fff3e0
+```
+
+### Architecture Layers
+
+| Layer | Components | Responsibility |
+|-------|------------|----------------|
+| **Extension** | extension.ts, OpenCodeExtension | Lifecycle, coordination |
+| **UI Management** | WebviewManager, WebviewController, ActivityBarProvider | Webview lifecycle, HTML generation |
+| **Communication** | CommunicationBridge, IdeBridgeServer | Bidirectional messaging, SSE |
+| **Backend** | BackendLauncher, ResourceExtractor | Process management, binary extraction |
+| **Webview** | chat-view, diff-preview, message-handler | UI rendering, user interaction |
+
 ## 2. Environment & Setup
 
 - **Language:** TypeScript (Target: ES2020)
@@ -199,5 +245,5 @@ Ideas y mejoras que surgen durante el desarrollo:
 
 ---
 
-**Última actualización:** Fase 4 completada - Ahora en Fase 5: Testing y Refactorización
+**Última actualización:** Fase 6 - Documentación de Arquitectura en progreso
 **Para iniciar una nueva sesión:** "Continuamos con la Fase X. Revisa el plan en @AGENTS.md"
