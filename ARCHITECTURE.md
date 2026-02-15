@@ -2,7 +2,53 @@
 
 ## 1. Vision General
 
-### 1.1 Proposito del Sistema
+### 1.1 Diagrama de Arquitectura
+
+```mermaid
+graph TB
+    subgraph "VSCode Extension (Backend)"
+        A["extension.ts<br/>Entry Point"] --> B["OpenCodeExtension<br/>Coordinator"]
+        B --> C["WebviewManager<br/>Panel Lifecycle"]
+        B --> D["BackendLauncher<br/>Process Manager"]
+        B --> E["SettingsManager<br/>Configuration"]
+        B --> F["ActivityBarProvider<br/>View Provider"]
+    end
+
+    subgraph "Communication Layer"
+        C <--> G["CommunicationBridge<br/>Message Bridge"]
+        G <--> H["IdeBridgeServer<br/>SSE Server"]
+        G <--> I["WebviewController<br/>Shared Controller"]
+    end
+
+    subgraph "OpenCode Backend"
+        D --> J["opencode serve<br/>Backend Process"]
+        J --> K["Port 4096+<br/>API Server"]
+    end
+
+    subgraph "Webview (Frontend)"
+        I --> L["webview/main.ts<br/>Entry"]
+        L --> M["chat-view<br/>Chat UI"]
+        L --> N["diff-preview<br/>Diff Viewer"]
+        M --> O["message-handler<br/>Message Parser"]
+        O --> P["markdown-renderer<br/>Renderer"]
+    end
+
+    style A fill:#e1f5fe
+    style J fill:#e8f5e9
+    style M fill:#fff3e0
+```
+
+### Architecture Layers
+
+| Layer | Components | Responsibility |
+|-------|------------|----------------|
+| **Extension** | extension.ts, OpenCodeExtension | Lifecycle, coordination |
+| **UI Management** | WebviewManager, WebviewController, ActivityBarProvider | Webview lifecycle, HTML generation |
+| **Communication** | CommunicationBridge, IdeBridgeServer | Bidirectional messaging, SSE |
+| **Backend** | BackendLauncher, ResourceExtractor | Process management, binary extraction |
+| **Webview** | chat-view, diff-preview, message-handler | UI rendering, user interaction |
+
+### 1.2 Proposito del Sistema
 
 **OpenCode DragonFu** es una extension de Visual Studio Code que integra la CLI de OpenCode con una interfaz de usuario personalizada (tema "DragonFu"). La extension proporciona una interfaz de chat basada en webview para interactuar con el backend de OpenCode.
 

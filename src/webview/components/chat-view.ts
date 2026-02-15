@@ -1154,15 +1154,20 @@ export class ChatView extends LitElement {
     private showDiffPreview(message: ChatMessage): void {
         const vscode = (window as any).vscode;
         
+        // Try to get file from context first, then fallback to current file
         const firstFile = message.context?.find(c => c.type === 'file');
+        const filePath = firstFile?.path || this.currentFile?.path || null;
+        const fileName = firstFile?.name || this.currentFile?.name || 'unknown';
+        
+        console.log('[ChatView] showDiffPreview - context file:', firstFile?.path, 'current file:', this.currentFile?.path);
         
         if (vscode) {
             vscode.postMessage({
                 type: 'diff.show',
                 content: message.content,
                 messageId: message.id,
-                filePath: firstFile?.path || null,
-                fileName: firstFile?.name || 'unknown'
+                filePath: filePath,
+                fileName: fileName
             });
         }
     }

@@ -344,6 +344,7 @@ export class DiffPreview extends LitElement {
     }
 
     private handleApply() {
+        console.log('[DiffPreview] Apply clicked - filePath:', this.filePath, 'fileName:', this.fileName);
         // Dispatch event for main.ts to handle
         window.dispatchEvent(new CustomEvent('message', {
             detail: { type: 'diff.applyCode', code: this.fixedCode, fileName: this.fileName, filePath: this.filePath }
