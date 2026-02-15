@@ -1,4 +1,5 @@
 import { ChatView } from './components/chat-view';
+import { createDiffManager } from './diff-manager';
 
 let chatView: ChatView | null = null;
 let diffManager: any = null;
@@ -23,7 +24,6 @@ export function createMessageHandler(config: MessageHandlerConfig = {}) {
 
     function getDiffManager() {
         if (!diffManager) {
-            const { createDiffManager } = require('./diff-manager');
             diffManager = createDiffManager();
         }
         return diffManager;
