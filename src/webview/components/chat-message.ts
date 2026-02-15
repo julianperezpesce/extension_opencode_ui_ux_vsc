@@ -31,6 +31,9 @@ export class ChatMessageElement extends LitElement {
     @property({ type: Boolean })
     showActions = false;
 
+    @property({ type: String, attribute: 'role' })
+    role: string = 'assistant';
+
     static styles = css`
         :host {
             display: block;

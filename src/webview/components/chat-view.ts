@@ -102,6 +102,23 @@ export class ChatView extends LitElement {
             gap: 1rem;
         }
 
+        chat-message {
+            display: block;
+            width: 100%;
+        }
+
+        chat-message[role="user"] {
+            align-self: flex-end;
+        }
+
+        chat-message[role="assistant"] {
+            align-self: flex-start;
+        }
+
+        chat-message[role="system"] {
+            align-self: center;
+        }
+
         .message {
             max-width: 85%;
             padding: 0.8rem;
@@ -628,6 +645,7 @@ export class ChatView extends LitElement {
                     <chat-message
                         .message="${msg}"
                         .showActions="${msg.role === 'assistant' && msg.hasCode && msg.type !== 'explain'}"
+                        role="${msg.role}"
                         @copy-code="${(e: CustomEvent) => this.copyCodeToClipboard(e.detail.content)}"
                         @show-preview="${(e: CustomEvent) => this.showDiffPreview(e.detail.message)}"
                     ></chat-message>
